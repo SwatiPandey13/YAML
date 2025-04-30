@@ -1,0 +1,30 @@
+parameters:
+- name: environment
+  type: string
+- name: environmentType
+  type: string
+- name: healthCheckUrl
+  type: string
+  default: 'NONE'
+- name: rolling
+  type: boolean
+  default: false
+
+steps:
+- script: |
+    echo "Deploying to ${{ parameters.environment }} environment"
+    # XL Deploy command would go here
+    echo "xldDeploy environmentId: Environments/$(Build.Repository.Name)/${{ parameters.environment }}/${{ parameters.environment }}"
+  displayName: 'Deploy to ${{ parameters.environmentType }}'
+
+- ${{ if ne(parameters.healthCheckUrl, 'NONE') }}:
+  - script: |
+      echo "Running health check against ${{ parameters.healthCheckUrl }}"
+      # Health check command would go here
+    displayName: 'Health Check ${{ parameters.environmentType }} (URL)'
+
+- ${{ if eq(parameters.healthCheckUrl, 'NONE') }}:
+  - script: |
+      echo "Running standard health check for ${{ parameters.environment }}"
+      # Standard health check command would go here
+    displayName: 'Health Check ${{ parameters.environmentType }}'
