@@ -1,0 +1,19 @@
+steps:
+- task: DownloadSecureFile@1
+  displayName: 'Download XL Deploy CLI'
+  name: xldCli
+  inputs:
+    secureFile: 'xld-cli.jar'
+
+- script: |
+    java -jar $(xldCli.secureFilePath) \
+      -server $(XLD_SERVER_URL) \
+      -username $(XLD_USER) \
+      -password $(XLD_PASSWORD) \
+      -package $(XLD_PACKAGE_NAME) \
+      -deployit-manifest deployit-manifest.xml
+  displayName: 'Publish XL Deploy Package'
+  env:
+    XLD_SERVER_URL: $(XLD_SERVER_URL)
+    XLD_USER: $(XLD_USER)
+    XLD_PASSWORD: $(XLD_PASSWORD)
