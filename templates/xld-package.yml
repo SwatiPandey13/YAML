@@ -1,0 +1,18 @@
+parameters:
+- name: APP_MANIFEST_TYPE
+  type: string
+- name: XLD_PACKAGE_NAME
+  type: string
+
+steps:
+- ${{ if not(empty(parameters.XLD_PACKAGE_NAME)) }}:
+  - script: |
+      # Command to create XLD package using manifest
+      echo "Creating XLD package ${{ parameters.XLD_PACKAGE_NAME }}"
+    displayName: 'Create XLD Package'
+
+- ${{ if empty(parameters.XLD_PACKAGE_NAME)) }}:
+  - script: |
+      # Command to generate manifest based on APP_MANIFEST_TYPE
+      echo "Generating ${{ parameters.APP_MANIFEST_TYPE }} manifest"
+    displayName: 'Generate Manifest'
