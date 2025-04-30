@@ -1,0 +1,39 @@
+parameters:
+- name: MAVEN_COMMON
+  type: boolean
+  default: false
+- name: BUILD_TOOL
+  type: string
+  default: 'maven'
+- name: GIT_REPO_NAME
+  type: string
+- name: APP_MANIFEST_TYPE
+  type: string
+
+steps:
+- ${{ if eq(parameters.BUILD_TOOL, 'maven') }}:
+  - task: Maven@3
+    displayName: 'Publish Maven Artifact'
+    inputs:
+      mavenPomFile: 'pom.xml'
+      goals: 'deploy'
+      publishJUnitResults: false
+      mavenAuthenticateFeed: true
+
+- ${{ if or(eq(parameters.APP_MANIFEST_TYPE, 'podman'), eq(parameters.APP_MANIFEST_TYPE, 'batchpodman'), eq(parameters.APP_MANIFEST_TYPE, 'batchwithimage')) }}:
+  - script: |
+      podman login -u $(REGISTRY_USER) -p $(REGISTRY_PASSWORD) $(REGISTRY_URL)
+      podman push ${{ parameters.JOB_NAME }}:latest
+    displayName: 'Push Podman Image'
+    env:
+      REGISTRY_USER: $(Artifactory.User)
+      REGISTRY_PASSWORD: $(Artifactory.Key)
+
+- ${{ if eq(parameters.APP_MANIFEST_TYPE, 'docker') }}:
+  - task: Docker@2
+    displayName: 'Push Docker Image'
+    inputs:
+      containerRegistry: 'dockerRegistryServiceConnection'
+      repository: '${{ parameters.JOB_NAME }}'
+      command: 'push'
+      tags: '$(Build.BuildId)'
