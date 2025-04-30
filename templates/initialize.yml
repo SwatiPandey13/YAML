@@ -1,0 +1,15 @@
+steps:
+- script: |
+    echo "##[section]Initializing Pipeline"
+    echo "Checking pipeline syntax and preparing environment"
+  displayName: 'Initialize Pipeline'
+
+- task: SnykSecurityScan@1
+  displayName: 'Snyk Security Scan'
+  inputs:
+    testType: 'app'
+    monitorWhen: 'always'
+    debug: ${{ parameters.SNYK_DEBUG_ENABLED }}
+
+- task: securedevelopmentteam.vss-secure-development-tools.build-task-credscan.CredScan@3
+  displayName: 'Scan for Secrets'
