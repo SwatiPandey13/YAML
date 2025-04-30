@@ -1,0 +1,318 @@
+# azure-pipelines.yml
+parameters:
+- name: APP_MANIFEST_TYPE
+  displayName: Application Manifest Type
+  type: string
+  default: 'pcfcustom'
+  values:
+  - 'pcfcustom'
+  - 'docker'
+  - 'podman'
+  - 'batchwithimage'
+  - 'batchpodman'
+  - 'pcfwithtestcustom'
+
+- name: BUILD_TOOL
+  displayName: Build Tool
+  type: string
+  default: 'maven'
+  values:
+  - 'maven'
+  - 'msbuild'
+  - 'DOTNET'
+  - 'npm'
+
+- name: BUILD_AGENT
+  displayName: Custom Build Agent Pool
+  type: string
+  default: ''
+
+- name: NODE_VERSION
+  displayName: Node.js Version
+  type: string
+  default: '10.15.1'
+
+- name: ROLLING
+  displayName: Zero Downtime Deployment
+  type: boolean
+  default: false
+
+- name: HEALTH_CHECK_CONTEXT
+  displayName: Health Check Context Path
+  type: string
+  default: 'NONE'
+
+- name: BUILD_FOLDER
+  displayName: Build Output Folder
+  type: string
+  default: 'dist'
+
+- name: PKG_MODULE
+  displayName: Package Module
+  type: string
+  default: 'NONE'
+
+- name: DEPLOY_WITH_POM
+  displayName: Deploy with POM
+  type: string
+  default: 'NO'
+
+- name: SNUNID
+  displayName: SNUN ID
+  type: string
+  default: ''
+
+- name: AUTOTEST_READY
+  displayName: Auto Test Ready
+  type: string
+  default: 'NONE'
+
+- name: UNIT_TEST
+  displayName: Run Unit Tests
+  type: boolean
+  default: false
+
+- name: UNIT_ENV
+  displayName: Unit Environment
+  type: string
+  default: 'NONE'
+
+- name: INTG_ENV
+  displayName: Integration Environment
+  type: string
+  default: 'NONE'
+
+- name: ACCP_ENV
+  displayName: Acceptance Environment
+  type: string
+  default: 'NONE'
+
+- name: JDK_NAME
+  displayName: JDK Version
+  type: string
+  default: 'jdk1.8.0_45'
+
+- name: UNIT_HEALTH_CHECK_URL
+  displayName: Unit Health Check URL
+  type: string
+  default: 'NONE'
+
+- name: INTG_HEALTH_CHECK_URL
+  displayName: Integration Health Check URL
+  type: string
+  default: 'NONE'
+
+- name: ACCP_HEALTH_CHECK_URL
+  displayName: Acceptance Health Check URL
+  type: string
+  default: 'NONE'
+
+- name: MAVEN_COMMON
+  displayName: Maven Common Project
+  type: boolean
+  default: false
+
+- name: SECONDARY_POM
+  displayName: Secondary POM File
+  type: string
+  default: ''
+
+- name: SNYK_DEBUG_ENABLED
+  displayName: Enable Snyk Debug
+  type: boolean
+  default: false
+
+- name: SONAR_DEBUG_ENABLED
+  displayName: Enable Sonar Debug
+  type: boolean
+  default: false
+
+- name: CERT_KEYSTORE
+  displayName: Enable Keystore Copy
+  type: boolean
+  default: false
+
+- name: SRC_PATH
+  displayName: Keystore Source Path
+  type: string
+  default: ''
+
+- name: DEST_PATH
+  displayName: Keystore Destination Path
+  type: string
+  default: ''
+
+- name: KEYSTORE_REPO_TEST
+  displayName: Keystore Test Repo
+  type: string
+  default: ''
+
+- name: KEYSTORE_REPO_PROD
+  displayName: Keystore Prod Repo
+  type: string
+  default: ''
+
+- name: DATA_VOLUME
+  displayName: Docker Data Volume
+  type: string
+  default: 'false'
+
+- name: SHAREDFS_VOLUME
+  displayName: Docker SharedFS Volume
+  type: string
+  default: 'false'
+
+- name: XLD_PACKAGE_NAME
+  displayName: XLD Package Name
+  type: string
+  default: ''
+
+- name: NOTIFICATION
+  displayName: Notification Settings
+  type: string
+  default: ''
+
+variables:
+  MAVEN_VERSION: '3.8.8'
+  ORG_ID: 'your-org-id' # Replace with your Snyk Org ID
+  GIT_REPO_NAME: $(Build.Repository.Name)
+
+jobs:
+- job: Build
+  displayName: 'Build and Deploy'
+  pool:
+    name: ${{ coalesce(parameters.BUILD_AGENT, 
+                      eq(parameters.APP_MANIFEST_TYPE, 'docker'), 'Docker_RHEL7',
+                      or(eq(parameters.BUILD_TOOL, 'msbuild'), eq(parameters.BUILD_TOOL, 'DOTNET')), 'WindowsNodes',
+                      'LinuxNodes_RHEL8') }}
+  
+  steps:
+  - task: NodeTool@0
+    displayName: 'Use Node $(NODE_VERSION)'
+    inputs:
+      versionSpec: ${{ parameters.NODE_VERSION }}
+    condition: and(succeeded(), ne(parameters.BUILD_TOOL, 'msbuild'), ne(parameters.BUILD_TOOL, 'DOTNET'))
+
+  - task: JavaToolInstaller@0
+    displayName: 'Use JDK $(DERIVED_JDK)'
+    inputs:
+      versionSpec: ${{ parameters.JDK_NAME }}
+      jdkArchitectureOption: 'x64'
+      jdkSourceOption: 'PreInstalled'
+
+  - script: |
+      echo "Build will be running in agent with label ${{ coalesce(parameters.BUILD_AGENT, 
+                      eq(parameters.APP_MANIFEST_TYPE, 'docker'), 'Docker_RHEL7',
+                      or(eq(parameters.BUILD_TOOL, 'msbuild'), eq(parameters.BUILD_TOOL, 'DOTNET')), 'WindowsNodes',
+                      'LinuxNodes_RHEL8') }}"
+      echo "Info: Default Node version ${{ parameters.NODE_VERSION }} will be used"
+    displayName: 'Print Build Info'
+
+  - template: templates/initialize.yml
+    parameters:
+      SNYK_DEBUG_ENABLED: ${{ parameters.SNYK_DEBUG_ENABLED }}
+      SONAR_DEBUG_ENABLED: ${{ parameters.SONAR_DEBUG_ENABLED }}
+
+  - ${{ if parameters.CERT_KEYSTORE }}:
+    - template: templates/keystore-copy.yml
+      parameters:
+        environment: 'preprod'
+        srcPath: ${{ parameters.SRC_PATH }}
+        destPath: ${{ parameters.DEST_PATH }}
+        repo: ${{ parameters.KEYSTORE_REPO_TEST }}
+
+    - template: templates/keystore-copy.yml
+      parameters:
+        environment: 'prod'
+        srcPath: ${{ parameters.SRC_PATH }}
+        destPath: ${{ parameters.DEST_PATH }}
+        repo: ${{ parameters.KEYSTORE_REPO_PROD }}
+
+  - template: templates/build.yml
+    parameters:
+      MAVEN_COMMON: ${{ parameters.MAVEN_COMMON }}
+      BUILD_TOOL: ${{ parameters.BUILD_TOOL }}
+      MAVEN_VERSION: $(MAVEN_VERSION)
+      SNYK_DEBUG_ENABLED: ${{ parameters.SNYK_DEBUG_ENABLED }}
+      UNIT_TEST: ${{ parameters.UNIT_TEST }}
+      SNUNID: ${{ parameters.SNUNID }}
+
+  - template: templates/analysis.yml
+    parameters:
+      APP_MANIFEST_TYPE: ${{ parameters.APP_MANIFEST_TYPE }}
+      JOB_NAME: $(Build.Repository.Name)
+      BUILD_TOOL: ${{ parameters.BUILD_TOOL }}
+      NODE_VERSION: ${{ parameters.NODE_VERSION }}
+      SONAR_DEBUG_ENABLED: ${{ parameters.SONAR_DEBUG_ENABLED }}
+      SNYK_DEBUG_ENABLED: ${{ parameters.SNYK_DEBUG_ENABLED }}
+      ORG_ID: $(ORG_ID)
+
+  - ${{ if or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), 
+             eq(variables['Build.SourceBranch'], 'refs/heads/master'),
+             startsWith(variables['Build.SourceBranch'], 'refs/heads/release')) }}:
+    - template: templates/publish.yml
+      parameters:
+        MAVEN_COMMON: ${{ parameters.MAVEN_COMMON }}
+        BUILD_TOOL: ${{ parameters.BUILD_TOOL }}
+        GIT_REPO_NAME: $(GIT_REPO_NAME)
+        APP_MANIFEST_TYPE: ${{ parameters.APP_MANIFEST_TYPE }}
+        JOB_NAME: $(Build.Repository.Name)
+
+    - ${{ if and(not(eq(parameters.MAVEN_COMMON, true)), not(empty(parameters.XLD_PACKAGE_NAME))) }}:
+      - template: templates/xld-package.yml
+        parameters:
+          APP_MANIFEST_TYPE: ${{ parameters.APP_MANIFEST_TYPE }}
+          XLD_PACKAGE_NAME: ${{ parameters.XLD_PACKAGE_NAME }}
+
+      - template: templates/xld-publish.yml
+
+    - ${{ if and(not(eq(parameters.UNIT_ENV, 'NONE')), not(eq(parameters.MAVEN_COMMON, true))) }}:
+      - template: templates/deploy.yml
+        parameters:
+          environment: ${{ parameters.UNIT_ENV }}
+          environmentType: 'UNIT'
+          healthCheckUrl: ${{ parameters.UNIT_HEALTH_CHECK_URL }}
+          rolling: ${{ parameters.ROLLING }}
+
+    - ${{ if and(not(eq(parameters.INTG_ENV, 'NONE')), not(eq(parameters.UNIT_ENV, 'NONE')), not(eq(parameters.MAVEN_COMMON, true))) }}:
+      - template: templates/deploy.yml
+        parameters:
+          environment: ${{ parameters.INTG_ENV }}
+          environmentType: 'INTG'
+          healthCheckUrl: ${{ parameters.INTG_HEALTH_CHECK_URL }}
+          rolling: ${{ parameters.ROLLING }}
+
+      - ${{ if eq(parameters.AUTOTEST_READY, 'READY') }}:
+        - template: templates/integration-test.yml
+          parameters:
+            environment: 'INTG'
+
+    - ${{ if and(not(eq(parameters.ACCP_ENV, 'NONE')), not(eq(parameters.INTG_ENV, 'NONE')), not(eq(parameters.UNIT_ENV, 'NONE')), not(eq(parameters.MAVEN_COMMON, true))) }}:
+      - template: templates/deploy.yml
+        parameters:
+          environment: ${{ parameters.ACCP_ENV }}
+          environmentType: 'ACCP'
+          healthCheckUrl: ${{ parameters.ACCP_HEALTH_CHECK_URL }}
+          rolling: ${{ parameters.ROLLING }}
+
+      - ${{ if eq(parameters.AUTOTEST_READY, 'READY') }}:
+        - template: templates/integration-test.yml
+          parameters:
+            environment: 'ACCP'
+
+- job: Cleanup
+  displayName: 'Cleanup'
+  dependsOn: Build
+  condition: always()
+  pool: server
+  steps:
+  - script: |
+      echo "Build Duration: $(Build.Duration)"
+      echo "##vso[task.setvariable variable=Build.Status;isOutput=true]$(Agent.JobStatus)"
+    displayName: 'Print Build Duration'
+    name: setBuildStatus
+
+  - template: templates/notification.yml
+    parameters:
+      status: $[ dependencies.Build.outputs['setBuildStatus.Build.Status'] ]
+      notificationSettings: ${{ parameters.NOTIFICATION }}
