@@ -1,0 +1,19 @@
+parameters:
+- name: environment
+  type: string
+
+steps:
+- script: |
+    cd AutomatedTestScripts
+    echo "Running integration tests against ${{ parameters.environment }}"
+    # Test execution command would go here
+  displayName: 'Integration Test - ${{ parameters.environment }}'
+
+- task: PublishTestResults@2
+  displayName: 'Publish Integration Test Results'
+  inputs:
+    testResultsFormat: 'JUnit'
+    testResultsFiles: 'AutomatedTestScripts/**/target/surefire-reports/*.xml'
+    mergeTestResults: true
+    failTaskOnFailedTests: true
+  condition: always()
