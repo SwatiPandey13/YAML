@@ -1,0 +1,63 @@
+parameters:
+- name: APP_MANIFEST_TYPE
+  type: string
+- name: JOB_NAME
+  type: string
+- name: BUILD_TOOL
+  type: string
+- name: NODE_VERSION
+  type: string
+- name: SONAR_DEBUG_ENABLED
+  type: boolean
+  default: false
+- name: SNYK_DEBUG_ENABLED
+  type: boolean
+  default: false
+- name: ORG_ID
+  type: string
+
+steps:
+- ${{ if or(eq(parameters.APP_MANIFEST_TYPE, 'podman'), eq(parameters.APP_MANIFEST_TYPE, 'batchwithimage'), eq(parameters.APP_MANIFEST_TYPE, 'batchpodman')) }}:
+  - script: |
+      podman build -t ${{ parameters.JOB_NAME }} .
+    displayName: 'Build Podman Image'
+  
+  - script: |
+      # CrowdStrike scan command would go here
+      echo "Running CrowdStrike scan on image"
+    displayName: 'CrowdStrike Image Scan'
+
+- ${{ if eq(parameters.APP_MANIFEST_TYPE, 'docker') }}:
+  - task: Docker@2
+    displayName: 'Build Docker Image'
+    inputs:
+      containerRegistry: 'dockerRegistryServiceConnection'
+      repository: '${{ parameters.JOB_NAME }}'
+      command: 'build'
+      Dockerfile: '**/Dockerfile'
+      tags: '$(Build.BuildId)'
+
+- task: SonarQubePrepare@4
+  displayName: 'Prepare SonarQube Analysis'
+  inputs:
+    SonarQube: 'SonarQube'
+    scannerMode: 'MSBuild'
+    projectKey: '${{ parameters.JOB_NAME }}'
+    projectName: '${{ parameters.JOB_NAME }}'
+    extraProperties: |
+      sonar.login=$(SONAR_TOKEN)
+      sonar.host.url=$(SONAR_HOST_URL)
+
+- task: SonarQubeAnalyze@4
+  displayName: 'Run SonarQube Analysis'
+
+- task: SonarQubePublish@4
+  displayName: 'Publish SonarQube Results'
+
+- task: SnykSecurityScan@1
+  displayName: 'Snyk SCA Scan'
+  inputs:
+    testType: 'sca'
+    monitorWhen: 'always'
+    debug: ${{ parameters.SNYK_DEBUG_ENABLED }}
+    organization: '${{ parameters.ORG_ID }}'
