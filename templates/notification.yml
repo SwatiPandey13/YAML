@@ -1,0 +1,21 @@
+parameters:
+- name: status
+  type: string
+- name: notificationSettings
+  type: string
+  default: ''
+
+steps:
+- ${{ if eq(parameters.status, 'Succeeded') }}:
+  - script: |
+      echo "##vso[task.setvariable variable=Build.Status.Color]green"
+      echo "Sending success notification"
+      # Notification command would go here
+    displayName: 'Send Success Notification'
+
+- ${{ if ne(parameters.status, 'Succeeded') }}:
+  - script: |
+      echo "##vso[task.setvariable variable=Build.Status.Color]red"
+      echo "Sending failure notification"
+      # Notification command would go here
+    displayName: 'Send Failure Notification'
