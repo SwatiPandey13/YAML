@@ -1,0 +1,114 @@
+trigger: none
+pool:
+  name: RHEL8_Servers
+variables:
+  - name: BuildAgentImage
+    value: 'RHEL8_Servers'
+  - name: JAVA_HOME
+    value: /opt/app/jvm/jdk1.8.0_45
+  - name: MAVEN_HOME
+    value: /opt/citools/jenkins_unit/b92a310e/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
+  - name: M2_HOME
+    value: /opt/citools/jenkins_unit/b92a310e/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
+
+resources:
+  repositories:
+    - repository: sonartemplates
+      type: git
+      name: Workflowlib_Global_Template/DevOps_Global_Template
+      ref: workflowlib
+stages:
+  - stage: Build
+    jobs:
+      - job: Build_Job
+
+        steps:
+          - checkout: self
+            clean: true
+            fetchDepth: 1
+          - script: |
+              # last_scanned="last_scanned-$(date +%Y%m%d)"
+              echo "##vso[build.addbuildtag]volo-test123"
+            displayName: 'Apply build tag'
+
+          - task: replacetokens@6
+            inputs:
+              sources: '**/pom.xml'
+              tokenPattern: custom
+              tokenPrefix: '${'
+              tokenSuffix: '}'
+              missingVarLog: warn
+          - script: |
+              mvn clean package -DskipTests
+            displayName: Build war with Maven
+            workingDirectory: $(System.DefaultWorkingDirectory)
+          
+          # variables:
+          #   - name: BuildAgentImage
+          #     value: 'RHEL8_Servers'
+          - template: sonarqube-analysis-template.yml@sonartemplates
+            parameters:
+              jobName: 'SonarBackendAnalysis'
+              buildTool: 'maven'
+              javaVersion: '17'
+              skipTests: false
+              qualityGateTimeoutMinutes: 15
+              additionalSonarProperties: |
+                sonar.java.binaries=target/classes
+                sonar.java.libraries=target/dependency/*
+                sonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+                sonar.junit.reportPaths=target/surefire-reports
+                sonar.exclusion=**/generated/**/*.java,**/dto/**/*.java
+
+
+
+
+          - task: CopyFiles@2
+            inputs:
+              SourceFolder: $(agent.builddirectory)
+              Contents: '**/*.war'
+              TargetFolder: $(build.artifactstagingdirectory)
+          - task: PublishBuildArtifacts@1
+            inputs:
+              PathtoPublish: $(build.artifactstagingdirectory)
+              ArtifactName: drop
+              publishLocation: Container
+          - script: >
+              podman login -u ${REG_CRED_USR} -p ${REG_CRED_PSW}
+              ${DOCKER_REGISTRY}
+
+              podman build -t "${DOCKER_REGISTRY}/volo_docker:ado_poc_v1" .
+            displayName: Build podman
+          - script: >
+              podman push --format v2s1 --log-level=debug
+              "${DOCKER_REGISTRY}/volo_docker:ado_poc_v1"
+            displayName: Push podman
+         
+  - stage: Deploy_PROD
+    dependsOn: Build
+    jobs:
+      - deployment: Deploy_To_Prod
+        environment:
+          name: PROD
+          resourceType: VirtualMachine
+          tags: prod
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: |
+                    echo "HostName: $(hostname)"
+                    echo "Running on: $(uname -a)"
+                  displayName: "Verify VM connection"
+
+                # - script: curl 
+
+                - script: |
+                    podman login -u $REG_CRED_USR -p $REG_CRED_PSW $DOCKER_REGISTRY
+                    podman pull "$(DOCKER_REGISTRY)/volo_docker:ado_poc_v1"
+                  displayName: 'pull podman image'
+                  env:
+                    REG_CRED_USR: $(REG_CRED_USR)
+                    REG_CRED_PSW: $(REG_CRED_PSW)
+                    DOCKER_REGISTRY: $(DOCKER_REGISTRY)
+                    
