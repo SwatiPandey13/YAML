@@ -1,0 +1,22 @@
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: YourProject/azure-devops-templates
+
+variables:
+  - name: BuildAgentImage
+    value: 'ubuntu-latest' # or 'macOS-latest', 'windows-latest'
+
+stages:
+- stage: Analyze
+  jobs:
+  - template: sonarqube-analysis-template.yml@templates
+    parameters:
+      jobName: 'FrontendAnalysis'
+      buildTool: 'npm'
+      nodeVersion: '18.x'
+      additionalSonarProperties: |
+        sonar.javascript.lcov.reportPaths=coverage/lcov.info
+        sonar.testExecutionReportPaths=test-report.xml
+      qualityGateTimeoutMinutes: 15
