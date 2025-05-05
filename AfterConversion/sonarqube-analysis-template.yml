@@ -1,0 +1,149 @@
+# Perfect SonarQube Analysis Template for Azure DevOps
+# Usage: Call this template with required parameters from your pipeline
+
+parameters:
+- name: jobName
+  type: string
+  default: 'SonarAnalysis'
+  
+- name: buildTool
+  type: string
+  values: ['ant', 'npm', 'golang', 'maven', 'maven3', 'python3']
+  
+- name: nodeVersion
+  type: string
+  default: '18.x'
+  
+- name: sonarDebugEnabled
+  type: boolean
+  default: false
+  
+- name: additionalSonarProperties
+  type: string
+  default: ''
+  
+- name: qualityGateTimeoutMinutes
+  type: number
+  default: 10
+  displayName: 'Quality Gate Timeout (minutes)'
+  
+- name: javaVersion
+  type: string
+  default: '17'
+  displayName: 'Java Version'
+  
+- name: skipTests
+  type: boolean
+  default: true
+  displayName: 'Skip Unit Tests'
+
+variables:
+  isMacOS: $[ eq(variables['Agent.OS'], 'Darwin') ]
+  isLinux: $[ eq(variables['Agent.OS'], 'Linux') ]
+  isWindows: $[ eq(variables['Agent.OS'], 'Windows_NT') ]
+  
+  # Default paths (will be overridden by UseJava task if needed)
+  jdkHome: $[ variables.get('JAVA_HOME', coalesce(variables['JAVA_HOME_17_X64'], '/usr/lib/jvm/java-17-openjdk')) ]
+  
+  # SonarQube properties that apply to all projects
+  commonSonarProps: |
+    sonar.scm.provider=git
+    sonar.sourceEncoding=UTF-8
+    sonar.verbose=${{ lower(parameters.sonarDebugEnabled) }}
+
+jobs:
+- job: ${{ parameters.jobName }}
+  displayName: 'SonarQube Analysis - ${{ parameters.jobName }}'
+  pool:
+    vmImage: $(BuildAgentImage) # Define this in your pipeline variables
+  
+  steps:
+  # ========== PREREQUISITE SETUP ==========
+  - task: UseJava@1
+    displayName: 'Setup Java ${{ parameters.javaVersion }}'
+    inputs:
+      version: ${{ parameters.javaVersion }}
+      jdkArchitecture: 'x64'
+      jdkSource: 'PreInstalled'
+      
+  - task: SonarQubeScannerInstaller@5
+    displayName: 'Install SonarScanner'
+    inputs:
+      version: 'latest'
+      
+  - ${{ if eq(parameters.buildTool, 'npm') }}:
+    - task: NodeTool@0
+      displayName: 'Use Node.js ${{ parameters.nodeVersion }}'
+      inputs:
+        versionSpec: ${{ parameters.nodeVersion }}
+        
+  # ========== BUILD TOOL SPECIFIC SETUP ==========
+  - ${{ if eq(parameters.buildTool, 'npm') }}:
+    - script: |
+        # Fix coverage paths for Linux/macOS
+        if [[ -f "./coverage/lcov.info" ]]; then
+          if [ "$(uname)" == "Darwin" ]; then
+            sed -i '' "s|SF:$(pwd)/|SF:|g" ./coverage/lcov.info
+          else
+            sed -i "s|SF:$(pwd)/|SF:|g" ./coverage/lcov.info
+          fi
+        fi
+      displayName: 'Normalize Coverage Paths'
+      condition: and(succeeded(), or(eq(variables.isMacOS, true), eq(variables.isLinux, true)))
+      
+  # ========== SONARQUBE ANALYSIS ==========
+  - task: SonarQubePrepare@5
+    displayName: 'Configure SonarQube Analysis'
+    inputs:
+      SonarQube: 'SonarProd' # Your service connection name
+      scannerMode: 'CLI'
+      configMode: 'manual'
+      cliProjectKey: '$(GIT_REPO_NAME)'
+      cliProjectName: '$(GIT_REPO_NAME)'
+      cliProjectVersion: '$(Build.SourceBranchName)-Build-$(Build.BuildNumber)'
+      extraProperties: |
+        ${{ variables.commonSonarProps }}
+        ${{ parameters.additionalSonarProperties }}
+        
+        # Build tool specific properties
+        ${{ if eq(parameters.buildTool, 'ant') }}
+        sonar.java.libraries=.
+        sonar.java.binaries=**/target/classes/
+        sonar.exclusions=**/com/voya/**/data/**,**/**/service/**
+        ${{ elseif eq(parameters.buildTool, 'npm') }}
+        sonar.projectBaseDir=$(Build.SourcesDirectory)
+        sonar.nodejs.executable=$(which node)
+        ${{ elseif eq(parameters.buildTool, 'golang') }}
+        sonar.projectBaseDir=$(Build.SourcesDirectory)
+        ${{ elseif or(eq(parameters.buildTool, 'maven'), eq(parameters.buildTool, 'maven3')) }}
+        sonar.maven.skipTests=${{ parameters.skipTests }}
+        ${{ elseif eq(parameters.buildTool, 'python3') }}
+        sonar.python.version=3.11
+        sonar.exclusions=**/*.jsp,*/jsp,**/junit-reports/**,**/coverage-reports/**,**/dist/**,**/.pyenv*/**,**/target/**
+        ${{ endif }}
+        
+  - ${{ if or(eq(parameters.buildTool, 'maven'), eq(parameters.buildTool, 'maven3')) }}:
+    - task: Maven@3
+      displayName: 'Run Maven with SonarQube'
+      inputs:
+        mavenPomFile: 'pom.xml'
+        goals: 'org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar'
+        options: '-Dmaven.test.skip=${{ parameters.skipTests }}'
+        mavenOptions: '-Xmx3072m'
+        sonarQubeRunAnalysis: false
+        
+  - ${{ if not(or(eq(parameters.buildTool, 'maven'), eq(parameters.buildTool, 'maven3'))) }}:
+    - script: |
+        export JAVA_HOME=$(JAVA_HOME_${{ parameters.javaVersion }}_X64)
+        sonar-scanner
+      displayName: 'Run SonarQube Scanner'
+      
+  # ========== QUALITY GATE CHECK ==========
+  - task: SonarQubeAnalyze@5
+    displayName: 'Complete Analysis'
+    
+  - task: SonarQubePublish@5
+    displayName: 'Check Quality Gate'
+    inputs:
+      pollingTimeoutSec: ${{ parameters.qualityGateTimeoutMinutes * 60 }}
+      sleepTimeSec: 10
