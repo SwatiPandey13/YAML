@@ -1,1 +1,231 @@
-testing
+main.yml
+
+trigger: none
+pool:
+  name: RHEL8_Servers
+variables:
+  - name: BuildAgentImage
+    value: 'RHEL8_Servers'
+  - name: JAVA_HOME
+    value: /opt/app/jvm/jdk1.8.0_45
+  - name: MAVEN_HOME
+    value: /opt/citools/jenkins_unit/b92a310e/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
+  - name: M2_HOME
+    value: /opt/citools/jenkins_unit/b92a310e/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
+
+resources:
+  repositories:
+    - repository: sonartemplates
+      type: git
+      name: Workflowlib_Global_Template/DevOps_Global_Template
+      ref: workflowlib
+stages:
+  - stage: Build
+    jobs:
+      - job: Build_Job
+        steps:
+          - checkout: self
+            clean: true
+            fetchDepth: 1
+          - script: |
+              # last_scanned="last_scanned-$(date +%Y%m%d)"
+              echo "##vso[build.addbuildtag]volo-test123"
+            displayName: 'Apply build tag'
+
+          - task: replacetokens@6
+            inputs:
+              sources: '**/pom.xml'
+              tokenPattern: custom
+              tokenPrefix: '${'
+              tokenSuffix: '}'
+              missingVarLog: warn
+          - script: |
+              mvn clean package -DskipTests
+            displayName: Build war with Maven
+            workingDirectory: $(System.DefaultWorkingDirectory)
+          
+
+      - template: global-sonar-analysis.yml@sonartemplates
+        parameters:
+          jobName: 'SonarBackendAnalysis'
+          buildTool: 'maven'
+          javaVersion: '17'
+          # additionalProps: |
+          #   -Dsonar.java.binaries=target/classes
+          #   -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+          #   -Dsonar.exclusion=**/generated/**/*.java,**/dto/**/*.java
+
+
+
+
+          - task: CopyFiles@2
+            inputs:
+              SourceFolder: $(agent.builddirectory)
+              Contents: '**/*.war'
+              TargetFolder: $(build.artifactstagingdirectory)
+          - task: PublishBuildArtifacts@1
+            inputs:
+              PathtoPublish: $(build.artifactstagingdirectory)
+              ArtifactName: drop
+              publishLocation: Container
+          - script: >
+              podman login -u ${REG_CRED_USR} -p ${REG_CRED_PSW}
+              ${DOCKER_REGISTRY}
+
+              podman build -t "${DOCKER_REGISTRY}/volo_docker:ado_poc_v1" .
+            displayName: Build podman
+          - script: >
+              podman push --format v2s1 --log-level=debug
+              "${DOCKER_REGISTRY}/volo_docker:ado_poc_v1"
+            displayName: Push podman
+         
+  - stage: Deploy_PROD
+    dependsOn: Build
+    jobs:
+      - deployment: Deploy_To_Prod
+        environment:
+          name: PROD
+          resourceType: VirtualMachine
+          tags: prod
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: |
+                    echo "HostName: $(hostname)"
+                    echo "Running on: $(uname -a)"
+                  displayName: "Verify VM connection"
+
+                # - script: curl 
+
+                - script: |
+                    podman login -u $REG_CRED_USR -p $REG_CRED_PSW $DOCKER_REGISTRY
+                    podman pull "$(DOCKER_REGISTRY)/volo_docker:ado_poc_v1"
+                  displayName: 'pull podman image'
+                  env:
+                    REG_CRED_USR: $(REG_CRED_USR)
+                    REG_CRED_PSW: $(REG_CRED_PSW)
+                    DOCKER_REGISTRY: $(DOCKER_REGISTRY)
+                    
+
+global-sonar-analysis.yml
+
+# Universal SonarQube Template (Matches Jenkins Groovy functionality)
+parameters:
+- name: jobName
+  type: string
+  default: 'SonarAnalysis'
+  
+- name: buildTool
+  type: string
+  values: ['ant', 'npm', 'golang', 'maven', 'maven3', 'python3', 'other']
+  
+- name: nodeVersion
+  type: string
+  default: '18.x'
+  
+- name: sonarDebugEnabled
+  type: boolean
+  default: false
+  
+- name: skipTests
+  type: boolean
+  default: true
+  
+- name: qualityGateTimeout
+  type: number
+  default: 9  # minutes (matches your Groovy timeout)
+  
+- name: customJavaHome
+  type: string
+  default: ''
+  
+- name: additionalProps
+  type: string
+  default: ''
+
+jobs:
+- job: ${{ parameters.jobName }}
+  pool:
+    name: $(BuildAgentImage)
+  variables:
+    SONAR_DEBUG: ${{ format('-X={0}', lower(parameters.sonarDebugEnabled)) }}
+    # Preserve all original Groovy variables
+    COMMON_SONAR_PARAMS: |
+      -Dsonar.projectName=$(GIT_REPO_NAME)
+      -Dsonar.projectKey=$(GIT_REPO_NAME)
+      -Dsonar.projectVersion=$(Build.SourceBranchName)-Build-$(Build.BuildNumber)
+      -Dsonar.scm.provider=git
+      -Djavax.net.ssl.trustStore=/opt/citools/etc/cacerts.keystore
+      $[ variables.SONAR_DEBUG ]
+      ${{ parameters.additionalProps }}
+  steps:
+  # ========== TOOL SETUP ==========
+  - ${{ if contains('ant,npm,maven,maven3,python3', parameters.buildTool) }}:
+    - bash: |
+        if [ "$(Agent.OS)" == "Darwin" ]; then
+          echo "##vso[task.setvariable variable=JDK_HOME]/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home"
+        else
+          echo "##vso[task.setvariable variable=JDK_HOME]/opt/app/jvm/jdk-17"
+        fi
+      displayName: 'Set JDK Home (Matches Groovy Logic)'
+      condition: eq('', '${{ parameters.customJavaHome }}')
+
+  - ${{ if notEmpty(parameters.customJavaHome) }}:
+    - bash: echo "##vso[task.setvariable variable=JDK_HOME]${{ parameters.customJavaHome }}"
+      displayName: 'Use Custom Java Home'
+
+  - ${{ if eq(parameters.buildTool, 'npm') }}:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: ${{ parameters.nodeVersion }}
+      displayName: 'Setup Node.js (Matches Version Comparison Logic)'
+
+  # ========== TECHNOLOGY-SPECIFIC ANALYSIS ==========
+  - task: SonarQubePrepare@5
+    displayName: 'Prepare Analysis (Matches withSonarQubeEnv)'
+    inputs:
+      SonarQube: 'SonarProd'
+      scannerMode: 'CLI'
+      extraProperties: |
+        $[ variables.COMMON_SONAR_PARAMS ]
+        
+        # ANT (Matches Groovy)
+        ${{ if eq(parameters.buildTool, 'ant') }}:
+        sonar.java.libraries=.
+        sonar.java.binaries=**/target/classes/
+        sonar.exclusions=**/com/voya/**/data/**,**/**/service/**
+        
+        # NPM (Matches Groovy)
+        ${{ if eq(parameters.buildTool, 'npm') }}:
+        sonar.projectBaseDir=$(Build.SourcesDirectory)
+        sonar.nodejs.executable=$(which node)
+        
+        # Python (Matches Groovy)
+        ${{ if eq(parameters.buildTool, 'python3') }}:
+        sonar.python.version=3.11
+        sonar.exclusions=**/*.jsp,*/jsp,**/junit-reports/**,**/coverage-reports/**,**/dist/**,**/.pyenv*/**,**/target/**
+
+  # ========== ANALYSIS EXECUTION ==========
+  # Maven (Matches Groovy Exactly)
+  - ${{ if or(eq(parameters.buildTool, 'maven'), eq(parameters.buildTool, 'maven3')) }}:
+    - bash: |
+        export JAVA_HOME=$(JDK_HOME)
+        mvn org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar \
+          -Dmaven.test.skip=${{ parameters.skipTests }}
+      displayName: 'Run Maven Analysis'
+
+  # All Other Technologies (Matches Groovy)
+  - ${{ if not(or(eq(parameters.buildTool, 'maven'), eq(parameters.buildTool, 'maven3'))) }}:
+    - bash: |
+        export JAVA_HOME=$(JDK_HOME)
+        sonar-scanner
+      displayName: 'Run SonarScanner'
+
+  # ========== QUALITY GATE ==========
+  - task: SonarQubePublish@5
+    displayName: 'Check Quality Gate (Matches qualityGate())'
+    inputs:
+      pollingTimeoutSec: ${{ parameters.qualityGateTimeout * 60 }}
+      sleepTimeSec: 10
+
