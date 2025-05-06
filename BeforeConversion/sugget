@@ -1,0 +1,47 @@
+# SONAR TEMPLATE (verified correct structure)
+parameters:
+- name: jobName
+  type: string
+  default: 'SonarAnalysis'
+
+- name: buildTool
+  type: string
+  values: ['ant', 'npm', 'maven', 'python3']
+
+- name: additionalProps
+  type: string
+  default: ''
+
+jobs:
+- job: ${{ parameters.jobName }}
+  pool:
+    vmImage: $(BuildAgentImage)
+  steps:
+  - task: SonarQubePrepare@5
+    inputs:
+      SonarQube: 'SonarProd'
+      scannerMode: 'CLI'
+      extraProperties: ${{ parameters.additionalProps }}
+
+
+      ------
+
+# MAIN PIPELINE (proper template call)
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: YourProject/azure-templates
+      ref: main
+
+stages:
+- stage: Analyze
+  jobs:
+  - template: global-sonar-analysis.yml@templates
+    parameters:
+      jobName: 'JavaAnalysis'
+      buildTool: 'maven'
+      additionalProps: |
+        -Dsonar.java.binaries=target/classes
+        -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+        -Dsonar.exclusions=**/generated/**/*.java
