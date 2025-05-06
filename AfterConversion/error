@@ -1,0 +1,18 @@
+
+[ERROR] urls[19] = file:/root/.m2/repository/commons-io/commons-io/2.16.1/commons-io-2.16.1.jar
+[ERROR] urls[20] = file:/root/.m2/repository/org/sonarsource/scanner/lib/sonar-scanner-java-library-batch-interface/3.3.1.450/sonar-scanner-java-library-batch-interface-3.3.1.450.jar
+[ERROR] urls[21] = file:/root/.m2/repository/io/github/hakky54/sslcontext-kickstart/8.3.6/sslcontext-kickstart-8.3.6.jar
+[ERROR] urls[22] = file:/root/.m2/repository/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
+[ERROR] urls[23] = file:/root/.m2/repository/org/apache/commons/commons-lang3/3.14.0/commons-lang3-3.14.0.jar
+[ERROR] Number of foreign imports: 1
+[ERROR] import: Entry[import  from realm ClassRealm[maven.api, parent: null]]
+[ERROR] 
+[ERROR] -----------------------------------------------------
+[ERROR] 
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/PluginContainerException
