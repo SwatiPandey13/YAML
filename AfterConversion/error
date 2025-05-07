@@ -1,2 +1,12 @@
-[ERROR] Failed to execute goal org.sonarsource.scanner.maven:sonar-maven-plugin:5.1.0.4751:sonar (default-cli) on project volo: Execution default-cli of goal org.sonarsource.scanner.maven:sonar-maven-plugin:5.1.0.4751:sonar failed: Unable to load the mojo 'sonar' in the plugin 'org.sonarsource.scanner.maven:sonar-maven-plugin:5.1.0.4751' due to an API incompatibility: org.codehaus.plexus.component.repository.exception.ComponentLookupException: org/sonarsource/scanner/maven/SonarQubeMojo has been compiled by a more recent version of the Java Runtime (class file version 55.0), this version of the Java Runtime only recognizes class file versions up to 52.0
-[ERROR] --
+  "https://sonarqube.unit.voya.net/api/qualitygates/project_status?projectKey=volo")
+
+echo "SonarQube Quality Gate Result: $RESPONSE"
+
+# Fail pipeline if Quality Gate fails
+if ! echo "$RESPONSE" | jq -e '.projectStatus.status == "OK"' > /dev/null; then
+  echo "##vso[task.logissue type=error]Quality Gate failed!"
+  echo "##vso[task.complete result=Failed;]"
+  exit 1
+fi
+SonarQube Quality Gate Result: {"errors":[{"msg":"Project \u0027volo\u0027 not found"}]}
+##[error]Quality Gate failed!
