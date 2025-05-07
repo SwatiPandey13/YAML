@@ -1,0 +1,168 @@
+# Universal Build Template
+parameters:
+- name: buildTool
+  type: string
+  values: ['ant', 'maven', 'npm', 'golang', 'python3', 'dotnet']
+  default: 'maven'
+
+- name: javaVersion
+  type: string
+  default: '11'
+
+- name: nodeVersion
+  type: string
+  default: '18.x'
+
+- name: mavenGoals
+  type: string
+  default: 'clean package'
+
+- name: npmScripts
+  type: object
+  default:
+    install: 'install'
+    build: 'build'
+    test: 'test'
+
+- name: buildArgs
+  type: string
+  default: ''
+
+jobs:
+- job: Build
+  displayName: 'Build - ${{ parameters.buildTool }}'
+  pool:
+    vmImage: $(BuildAgentImage)
+  steps:
+  # ===== Tool Installation =====
+  - ${{ if contains('ant,maven', parameters.buildTool) }}:
+    - task: JavaToolInstaller@0
+      inputs:
+        versionSpec: ${{ parameters.javaVersion }}
+        jdkArchitectureOption: 'x64'
+
+  - ${{ if eq(parameters.buildTool, 'npm') }}:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: ${{ parameters.nodeVersion }}
+
+  # ===== Build Execution =====
+  - ${{ if eq(parameters.buildTool, 'ant') }}:
+    - script: |
+        ant clean ${{ parameters.buildArgs }}
+        ant jar ${{ parameters.buildArgs }}
+      displayName: 'Ant Build'
+
+  - ${{ if eq(parameters.buildTool, 'maven') }}:
+    - task: Maven@3
+      inputs:
+        mavenPomFile: 'pom.xml'
+        goals: '${{ parameters.mavenGoals }}'
+        options: '${{ parameters.buildArgs }}'
+
+  - ${{ if eq(parameters.buildTool, 'npm') }}:
+    - script: npm ${{ parameters.npmScripts.install }}
+      displayName: 'npm install'
+    - script: npm run ${{ parameters.npmScripts.build }}
+      displayName: 'npm build'
+    - script: npm run ${{ parameters.npmScripts.test }}
+      displayName: 'npm test'
+      condition: succeeded()
+
+  - ${{ if eq(parameters.buildTool, 'golang') }}:
+    - script: |
+        go mod tidy
+        go build -v ./...
+        go test -coverprofile=coverage.out ./...
+      displayName: 'Go Build'
+
+  - ${{ if eq(parameters.buildTool, 'python3') }}:
+    - script: |
+        python -m pip install -r requirements.txt
+        python -m pytest --cov=. --cov-report=xml:coverage.xml
+      displayName: 'Python Build'
+
+  - ${{ if eq(parameters.buildTool, 'dotnet') }}:
+    - task: DotNetCoreCLI@2
+      inputs:
+        command: 'build'
+        arguments: '${{ parameters.buildArgs }}'
+
+
+====================================================
+
+
+# SonarQube Analysis Template
+parameters:
+- name: projectKey
+  type: string
+
+- name: buildTool
+  type: string
+  values: ['ant', 'maven', 'npm', 'golang', 'python3', 'dotnet']
+  default: 'maven'
+
+- name: coveragePaths
+  type: object
+  default:
+    maven: 'target/site/jacoco/jacoco.xml'
+    npm: 'coverage/lcov.info'
+    golang: 'coverage.out'
+    python3: 'coverage.xml'
+    dotnet: '**/coverage.opencover.xml'
+
+- name: extraProps
+  type: string
+  default: ''
+
+jobs:
+- job: SonarAnalysis
+  displayName: 'SonarQube - ${{ parameters.projectKey }}'
+  dependsOn: Build
+  pool:
+    vmImage: $(BuildAgentImage)
+  steps:
+  - task: SonarQubePrepare@5
+    inputs:
+      SonarQube: 'SonarQubeService'
+      scannerMode: 'CLI'
+      configMode: 'manual'
+      extraProperties: |
+        sonar.projectKey=${{ parameters.projectKey }}
+        sonar.projectName=$(Build.Repository.Name)
+        sonar.projectVersion=$(Build.SourceBranchName)-$(Build.BuildNumber)
+        sonar.scm.provider=git
+        sonar.sourceEncoding=UTF-8
+        ${{ if ne(parameters.coveragePaths[parameters.buildTool], '') }}:
+        sonar.${{ replace(parameters.buildTool, 'python3', 'python') }}.coverage.reportPaths=${{ parameters.coveragePaths[parameters.buildTool] }}
+        ${{ parameters.extraProps }}
+
+  - ${{ if eq(parameters.buildTool, 'npm') }}:
+    - script: |
+        if [ -f "${{ parameters.coveragePaths.npm }}" ] && [ "$(Agent.OS)" != "Darwin" ]; then
+          sed -i "s|SF:$(pwd)/|SF:|g" ${{ parameters.coveragePaths.npm }}
+        fi
+        sonar-scanner
+      displayName: 'Node.js Analysis'
+
+  - ${{ if contains('ant,golang,python3', parameters.buildTool) }}:
+    - script: sonar-scanner
+      displayName: 'Run Analysis'
+
+  - ${{ if eq(parameters.buildTool, 'dotnet') }}:
+    - task: DotNetCoreCLI@2
+      inputs:
+        command: 'custom'
+        custom: 'dotnet sonarscanner'
+        arguments: 'begin /k:"${{ parameters.projectKey }}"'
+    - task: DotNetCoreCLI@2
+      inputs:
+        command: 'build'
+    - task: DotNetCoreCLI@2
+      inputs:
+        command: 'custom'
+        custom: 'dotnet sonarscanner'
+        arguments: 'end'
+
+  - task: SonarQubePublish@5
+    timeoutInMinutes: 10
