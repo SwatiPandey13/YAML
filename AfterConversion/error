@@ -1,18 +1,33 @@
 
+[ERROR] urls[16] = file:/root/.m2/repository/com/google/errorprone/error_prone_annotations/2.27.0/error_prone_annotations-2.27.0.jar
+[ERROR] urls[17] = file:/root/.m2/repository/org/apache/commons/commons-compress/1.27.1/commons-compress-1.27.1.jar
+[ERROR] urls[18] = file:/root/.m2/repository/commons-codec/commons-codec/1.17.1/commons-codec-1.17.1.jar
 [ERROR] urls[19] = file:/root/.m2/repository/commons-io/commons-io/2.16.1/commons-io-2.16.1.jar
 [ERROR] urls[20] = file:/root/.m2/repository/org/sonarsource/scanner/lib/sonar-scanner-java-library-batch-interface/3.3.1.450/sonar-scanner-java-library-batch-interface-3.3.1.450.jar
 [ERROR] urls[21] = file:/root/.m2/repository/io/github/hakky54/sslcontext-kickstart/8.3.6/sslcontext-kickstart-8.3.6.jar
 [ERROR] urls[22] = file:/root/.m2/repository/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
 [ERROR] urls[23] = file:/root/.m2/repository/org/apache/commons/commons-lang3/3.14.0/commons-lang3-3.14.0.jar
-[ERROR] Number of foreign imports: 1
-[ERROR] import: Entry[import  from realm ClassRealm[maven.api, parent: null]]
-[ERROR] 
-[ERROR] -----------------------------------------------------
-[ERROR] 
-[ERROR] -> [Help 1]
-[ERROR] 
-[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
-[ERROR] Re-run Maven using the -X switch to enable full debug logging.
-[ERROR] 
-[ERROR] For more information about the errors and possible solutions, please read the following articles:
-[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/PluginContainerException
+
+
+          - task: Maven@3
+            inputs:
+              mavenPomFile: 'pom.xml'
+              goals: 'clean verify'
+              options: |
+                -DskipTests=true
+                -Dmaven.wagon.http.ssl.insecure=true
+                -Dmaven.wagon.http.ssl.allowall=true
+                -Dmaven.wagon.http.ssl.ignore.validity.dates=true
+          - task: Maven@3
+            inputs:
+              mavenPomFile: 'pom.xml'
+              goals: 'verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar'
+              options: |
+                -Dsonar.projectkey=volo
+                -Dsonar.projectName=volo
+                -Dsonar.host.url=https://sonarqube.unit.voya.ne
+                -Dsonar.login=sqa_e9da46b651a934d76dd10001ff73d06c84da6d77
+          
+          - task: SonarQubePublish@7
+            inputs:
+              pollingTimeoutSec: 600
