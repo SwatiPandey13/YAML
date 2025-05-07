@@ -1,20 +1,22 @@
-stages:
-- stage: Build
-  jobs:
-  - template: templates/build.yml@shared
-    parameters:
-      buildTool: 'maven'
-      mavenGoals: 'clean package'
-      buildArgs: '-DskipTests=true'
+ Trigger SonarQube analysis (using sonar-scanner CLI)
+- script: |
+    sonar-scanner \
+      -Dsonar.host.url=$(SONARQUBE_URL) \
+      -Dsonar.login=$(SONARQUBE_TOKEN) \
+      -Dsonar.projectKey=$(SONAR_PROJECT_KEY)
+  displayName: "Run SonarQube Analysis"
 
-- stage: Analyze
-  dependsOn: Build
-  jobs:
-  - template: templates/sonarqube.yml@shared
-    parameters:
-      projectKey: 'my-project'
-      buildTool: 'maven'
-      coveragePaths:
-        maven: 'target/site/jacoco/jacoco.xml'
-      extraProps: |
-        sonar.exclusions=**/generated/**/*.java
+# Check Quality Gate status (using curl)
+- script: |
+    RESPONSE=$(curl -s -u "$(SONARQUBE_TOKEN):" \
+      "$(SONARQUBE_URL)/api/qualitygates/project_status?projectKey=$(SONAR_PROJECT_KEY)")
+    
+    echo "SonarQube Quality Gate Result: $RESPONSE"
+    
+    # Fail pipeline if Quality Gate fails
+    if ! echo "$RESPONSE" | jq -e '.projectStatus.status == "OK"' > /dev/null; then
+      echo "##vso[task.logissue type=error]Quality Gate failed!"
+      echo "##vso[task.complete result=Failed;]"
+      exit 1
+    fi
+  displayName: "Verify Quality Gate"
