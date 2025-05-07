@@ -1,12 +1,48 @@
-  "https://sonarqube.unit.voya.net/api/qualitygates/project_status?projectKey=volo")
+# Run Maven with SonarQube analysis
+- script: |
+    mvn clean verify sonar:sonar \
+      -Dsonar.host.url=https://sonarqube.unit.voya.net \
+      -Dsonar.login=$(SONAR_TOKEN) \
+      -Dsonar.projectKey=volo \
+      -Dsonar.projectName="Your Project Name" \
+      -Dsonar.projectVersion=1.0
+  displayName: 'Run Maven with SonarQube Analysis'
+  env:
+    SONAR_TOKEN: $(SONAR_TOKEN) # Secret pipeline variable
 
-echo "SonarQube Quality Gate Result: $RESPONSE"
-
-# Fail pipeline if Quality Gate fails
-if ! echo "$RESPONSE" | jq -e '.projectStatus.status == "OK"' > /dev/null; then
-  echo "##vso[task.logissue type=error]Quality Gate failed!"
-  echo "##vso[task.complete result=Failed;]"
-  exit 1
-fi
-SonarQube Quality Gate Result: {"errors":[{"msg":"Project \u0027volo\u0027 not found"}]}
-##[error]Quality Gate failed!
+# Wait for analysis to be processed (critical!)
+- script: |
+    echo "Waiting 30 seconds for analysis to be processed..."
+    sleep 30
+    
+    # Check Quality Gate status
+    MAX_RETRIES=5
+    RETRY_DELAY=10
+    retry_count=0
+    
+    while [ $retry_count -lt $MAX_RETRIES ]; do
+      RESPONSE=$(curl -s -u "$(SONAR_TOKEN):" \
+        "https://sonarqube.unit.voya.net/api/qualitygates/project_status?projectKey=volo")
+      
+      if echo "$RESPONSE" | jq -e '.projectStatus.status' > /dev/null; then
+        break
+      fi
+      
+      echo "Analysis not ready yet, retrying in $RETRY_DELAY seconds..."
+      retry_count=$((retry_count+1))
+      sleep $RETRY_DELAY
+    done
+    
+    echo "SonarQube Quality Gate Result: $RESPONSE"
+    
+    # Fail pipeline if Quality Gate fails
+    if ! echo "$RESPONSE" | jq -e '.projectStatus.status == "OK"' > /dev/null; then
+      echo "##vso[task.logissue type=error]Quality Gate failed! Status: $(echo "$RESPONSE" | jq -r '.projectStatus.status')"
+      echo "##vso[task.complete result=Failed;]"
+      exit 1
+    fi
+    
+    echo "Quality Gate passed!"
+  displayName: 'Check Quality Gate Status'
+  env:
+    SONAR_TOKEN: $(SONAR_TOKEN)
