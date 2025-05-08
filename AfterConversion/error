@@ -10,6 +10,10 @@ variables:
     value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
   - name: M2_HOME
     value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
+  - name: SONAR_PROJECT_KEY
+    value: volo
+  - name: SONARQUBE_URL
+    value: https://sonarqube.unit.voya.net
 
 resources:
   repositories:
@@ -20,7 +24,6 @@ resources:
       
 stages:
   - stage: Build
-    
     jobs:
       - job: Build_Job
         workspace:
@@ -29,8 +32,8 @@ stages:
           - checkout: self
             clean: true
             fetchDepth: 1
+            
           - script: |
-              # last_scanned="last_scanned-$(date +%Y%m%d)"
               echo "##vso[build.addbuildtag]volo-test123"
             displayName: 'Apply build tag'
 
@@ -42,63 +45,76 @@ stages:
               tokenSuffix: '}'
               missingVarLog: warn
 
-        
-           #Trigger SonarQube analysis (using sonar-scanner CLI)
+          # First build the project
+          - task: Maven@3
+            inputs:
+              mavenPomFile: 'pom.xml'
+              goals: 'clean package'
+              options: '-DskipTests=true'
+            displayName: 'Build project'
+
+          # Then run SonarQube analysis
+          - task: Maven@3
+            inputs:
+              mavenPomFile: 'pom.xml'
+              goals: 'org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar'
+              options: |
+                -Dsonar.projectKey=$(SONAR_PROJECT_KEY)
+                -Dsonar.projectName=volo
+                -Dsonar.host.url=$(SONARQUBE_URL)
+                -Dsonar.login=$(SONAR_TOKEN)
+                -Dsonar.java.binaries=target/classes
+                -Dsonar.sourceEncoding=UTF-8
+            displayName: 'Run SonarQube Analysis'
+            env:
+              SONAR_TOKEN: $(SONAR_TOKEN)
+
+          # Wait for analysis to complete
           - script: |
-              curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-              export NVM_DIR="$HOME/.nvm"
-              [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+              echo "Waiting 30 seconds for analysis to complete..."
+              sleep 30
+            displayName: 'Wait for analysis processing'
 
-              # Install Node.js 20.x (LTS) without sudo
-              nvm install 20
-              node -v  # Verify
-
-              # Install sonar-scanner globally (local to user)
-              npm install -g sonar-scanner
-              sonar-scanner --version
-            displayName: "Install Node.js 20.x via nvm"
-
-          # Check Quality Gate status (using curl)
+          # Check Quality Gate status
           - script: |
-              RESPONSE=$(curl -s -u "$(SONARQUBE_TOKEN):" \
-                "$(SONARQUBE_URL)/api/qualitygates/project_status?projectKey=$(SONAR_PROJECT_KEY)")
+              MAX_RETRIES=5
+              RETRY_DELAY=10
+              retry_count=0
+              
+              while [ $retry_count -lt $MAX_RETRIES ]; do
+                RESPONSE=$(curl -s -u "$(SONAR_TOKEN):" \
+                  "$(SONARQUBE_URL)/api/qualitygates/project_status?projectKey=$(SONAR_PROJECT_KEY)")
+                
+                if echo "$RESPONSE" | jq -e '.projectStatus.status' > /dev/null; then
+                  break
+                fi
+                
+                echo "Analysis not ready yet, retrying in $RETRY_DELAY seconds..."
+                retry_count=$((retry_count+1))
+                sleep $RETRY_DELAY
+              done
               
               echo "SonarQube Quality Gate Result: $RESPONSE"
               
-              # Fail pipeline if Quality Gate fails
               if ! echo "$RESPONSE" | jq -e '.projectStatus.status == "OK"' > /dev/null; then
-                echo "##vso[task.logissue type=error]Quality Gate failed!"
+                echo "##vso[task.logissue type=error]Quality Gate failed! Status: $(echo "$RESPONSE" | jq -r '.projectStatus.status')"
                 echo "##vso[task.complete result=Failed;]"
                 exit 1
               fi
-            displayName: "Verify Quality Gate"
-          - task: Maven@3
-            inputs:
-              mavenPomFile: 'pom.xml'
-              goals: 'clean verify'
-              options: '-DskipTests=true'
+              
+              echo "Quality Gate passed!"
+            displayName: 'Verify Quality Gate'
+            env:
+              SONAR_TOKEN: $(SONAR_TOKEN)
 
-          - task: Maven@3
-            inputs:
-              mavenPomFile: 'pom.xml'
-              goals: 'org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar'
-              options: |
-                -Dsonar.projectkey=volo
-                -Dsonar.projectName=volo
-                -Dsonar.host.url=https://sonarqube.unit.voya.net
-                -Dsonar.login=sqa_e9da46b651a934d76dd10001ff73d06c84da6d89
-          
-          - task: SonarQubePublish@7
-            inputs:
-              pollingTimeoutSec: 600
+          # Publish artifacts
           - task: CopyFiles@2
             inputs:
               SourceFolder: $(agent.builddirectory)
               Contents: '**/*.war'
               TargetFolder: $(build.artifactstagingdirectory)
+              
           - task: PublishBuildArtifacts@1
             inputs:
               PathtoPublish: $(build.artifactstagingdirectory)
               ArtifactName: drop
-
-                    
