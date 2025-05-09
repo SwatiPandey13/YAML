@@ -1,124 +1,24 @@
-def call(boolean SNYK_DEBUG_ENABLED = false ){
-    if ( "${env.SnykCompleted}" == 'false' && !BRANCH.startsWith("PR-") && !BRANCH.startsWith("pilot")) {
-        stage('Snyk Code Scan') {
-            script{
-                try {
-                    def platForm = isUnix() ? "sh" : "bat"
-                    def SYNC_CONFIG_DIR = "snyk-config"
-                    // Set empty to pass empty as snyk flag
-                    def SNYK_DEBUG = ""
-                    def snykBinary
-                    def ORG_ID = "dummy"
-                    if ("${platForm}" == "sh") {   
-                        "${platForm}" "mkdir -p ${SYNC_CONFIG_DIR}"
-                        dir("${SYNC_CONFIG_DIR}")
-                        {
-                            "${platForm}" """
-                            git init
-                            git remote add origin -f git@github.voya.net:Voya/snyk-policy-config.git
-                            git config core.sparecheckout true
-                            git pull --depth=1 origin master
-                            cp -a ./SAST_configs ../
-                            cp -a ./SCA_configs ../
-                            """
-                        }      
-                    } else if ("${platForm}" == "bat") {   
-                            "${platForm}" '''
-                                git clone --depth 1 https://github.voya.net/Voya/snyk-policy-config.git
-                                copy snyk-policy-config\\SAST_configs SAST_configs
-                                copy snyk-policy-config\\SCA_configs SCA_configs
-                            '''
-                    }
-                        
-                    def snyk_apps_config = readFile file: 'SAST_configs';
-                    def ignoreFiles = []
-                    boolean enableCli
-                    def SEVERITY = "critical"              //default severity set to critical
-                    def applicationconfig = snyk_apps_config.split("\n").find { it.contains("${GIT_REPO_NAME}:") }
-                    
-                    if (applicationconfig) {
-                        def application_snyk_params = applicationconfig.split(":")
-                        if (application_snyk_params !=  null && application_snyk_params.length > 4) {  // snyk configuration with severity, failOnIssues and file exclusion
-                                ORG_ID = "${application_snyk_params[1]}"
-                        SEVERITY = "${application_snyk_params[2]}"
-                                enableCli = application_snyk_params[3].toBoolean()
-                        ignoreFiles = application_snyk_params[4].split(',').collect { it.trim()}
-                                            
-                        } else if (application_snyk_params != null && application_snyk_params.length == 4) {  // snyk configuration with severity and failOnIssues only
-                                ORG_ID = "${application_snyk_params[1]}"
-                        SEVERITY = "${application_snyk_params[2]}"
-                                enableCli = application_snyk_params[3].toBoolean()
-                        } 
-                        def snykPath = tool name: 'snyk@latest', type: 'io.snyk.jenkins.tools.SnykInstallation'
-                        
-                        if (isUnix()) {
-                            if (sh(script: 'uname', returnStdout: true).trim() == 'Darwin') {
-                                snykBinary = "${snykPath}/snyk-macos"
-                            } else {
-                                snykBinary = "${snykPath}/snyk-linux"
-                            }
-                        } else {
-                            snykBinary = "${snykPath}/snyk-win.exe"
-                        }
-                        SNYK_DEBUG = SNYK_DEBUG_ENABLED ? "--debug" : ""
-                        // snyk security plugin  
-                        snykSecurity(
-                        snykInstallation: 'snyk@latest',
-                        snykTokenId: 'Snyk-api-token',
-                        failOnIssues: false,
-                        monitorProjectOnBuild: false,
-                        additionalArguments: "--code --insecure ${SNYK_DEBUG}"
-                        )
-                        
-                        withCredentials([string(credentialsId: 'SNYK_AUTH_KEY', variable: 'AUTH_KEY')]) {
-                            def snykcommand = "${snykBinary} auth ${AUTH_KEY}"
-                            //appending snykcommad with ignore files
-                            ignoreFiles.each { ignoreFile ->
-                            snykcommand += " && ${snykBinary} ignore --file-path=${ignoreFile}"
-                            }
-                            //appending snyk command with org, project-name, severity 
-                            snykcommand += " && ${snykBinary} code test --report --project-name=${GIT_REPO_NAME}-${BRANCH}-SnykCode --org=${ORG_ID} --no-cache --insecure --severity-threshold=${SEVERITY} ${SNYK_DEBUG}"
-                            
-                            // Ensure BUILD_TOOL is defined and check if it contains "python" (case-insensitive)
-                            if (BUILD_TOOL && BUILD_TOOL.toLowerCase().contains("python")) {
-                                snykcommand += " --command=python3"
-                            }
-                                                
-                            if(enableCli) {
-                                println ("Command to be executed ${snykcommand}")
-                                if ( "${platForm}" == "sh" ) {
-                                "${platForm}"  """
-                                export PATH=${snykPath}:/usr/bin:/bin:$PATH
-                                ${snykcommand}
-                                """
-                                } else {
-                                        def jdkhome = tool DERIVED_JDK
-                                        def nodehome = tool DERIVED_NODE
-                                        "${platForm}" """
-                                            set JAVA_HOME=${jdkhome}
-                                            set NODE_HOME=${nodehome}
-                                            set PATH=%JAVA_HOME%/bin;%NODE_HOME%;${snykPath};%PATH%
-                                            ${snykcommand}
-                                        """
-                                }
-                                env.snykconfig = true
-                                env.ORG_ID = "${ORG_ID}"    
-                            }
-                        }
-                    } else {
-                        println (" snykscan is skipped due to config not found, please work with DL-AST@voya.com team to update config for ${GIT_REPO_NAME}")
-                        env.snykconfig = false   // setting this false to avoid snyk scan scan for missing config
-                        env.ORG_ID = "dummy"
-                    }
-                    env.SnykCompleted = true    //setting the env.snykCompleted to true to avoid mulitple execution of snykscan.
-                    env.snykBinary = snykBinary
-                    println (" secrets scan is running for application source code for Project name ${GIT_REPO_NAME}")
-                    scanSecrets()
-                } catch (Exception e) {
-                    currentBuild.result = 'FAILURE'
-                    error("Snyk Code Scan failed: ${e}")
-                }
-            }
-        }
-    }
-}
+- task: Maven@3
+            inputs:
+              mavenPomFile: 'pom.xml'
+              goals: 'clean verify sonar:sonar'
+              options: |
+                -Dsonar.projectKey=$(SONAR_PROJECT_KEY)
+                -Dsonar.projectName=$(SONAR_PROJECT_KEY)
+                -Dsonar.host.url=$(SONARQUBE_URL)
+                -Dsonar.login=$(SONAR_TOKEN)
+                -Dsonar.java.binaries=target/classes
+                -Dsonar.sourceEncoding=UTF-8
+                -Dsonar.scanner.metadata.skip=true
+              publishJUnitResults: false
+            displayName: 'Run SonarQube Analysis'
+            env:
+              SONAR_TOKEN: $(SONAR_TOKEN)
+
+[ERROR] Failed to execute goal org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar (default) on project ivolo: Execution default of goal org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar failed: An API incompatibility was encountered while executing org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar: java.lang.UnsupportedClassVersionError: org/sonar/batch/bootstrapper/EnvironmentInformation has been compiled by a more recent version of the Java Runtime (class file version 55.0), this version of the Java Runtime only recognizes class file versions up to 52.0
+[ERROR] -----------------------------------------------------
+[ERROR] realm =    plugin>org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184
+[ERROR] strategy = org.codehaus.plexus.classworlds.strategy.SelfFirstStrategy
+[ERROR] urls[0] = file:/root/.m2/repository/org/sonarsource/scanner/maven/sonar-maven-plugin/3.9.1.2184/sonar-maven-plugin-3.9.1.2184.jar
+[ERROR] urls[1] = file:/root/.m2/repository/org/sonatype/plexus/plexus-sec-dispatcher/1.4/plexus-sec-dispatcher-1.4.jar
+[ERROR
