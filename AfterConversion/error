@@ -1,24 +1,29 @@
-- task: Maven@3
-            inputs:
-              mavenPomFile: 'pom.xml'
-              goals: 'clean verify sonar:sonar'
-              options: |
-                -Dsonar.projectKey=$(SONAR_PROJECT_KEY)
-                -Dsonar.projectName=$(SONAR_PROJECT_KEY)
-                -Dsonar.host.url=$(SONARQUBE_URL)
-                -Dsonar.login=$(SONAR_TOKEN)
-                -Dsonar.java.binaries=target/classes
-                -Dsonar.sourceEncoding=UTF-8
-                -Dsonar.scanner.metadata.skip=true
-              publishJUnitResults: false
-            displayName: 'Run SonarQube Analysis'
-            env:
-              SONAR_TOKEN: $(SONAR_TOKEN)
+steps:
+# Clean both Maven cache and local repository
+- script: |
+    mvn dependency:purge-local-repository -DactTransitively=false -DreResolve=false
+    rm -rf ~/.m2/repository/org/sonarsource/scanner/maven/
+  displayName: 'Clean Maven Cache'
 
-[ERROR] Failed to execute goal org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar (default) on project ivolo: Execution default of goal org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar failed: An API incompatibility was encountered while executing org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar: java.lang.UnsupportedClassVersionError: org/sonar/batch/bootstrapper/EnvironmentInformation has been compiled by a more recent version of the Java Runtime (class file version 55.0), this version of the Java Runtime only recognizes class file versions up to 52.0
-[ERROR] -----------------------------------------------------
-[ERROR] realm =    plugin>org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184
-[ERROR] strategy = org.codehaus.plexus.classworlds.strategy.SelfFirstStrategy
-[ERROR] urls[0] = file:/root/.m2/repository/org/sonarsource/scanner/maven/sonar-maven-plugin/3.9.1.2184/sonar-maven-plugin-3.9.1.2184.jar
-[ERROR] urls[1] = file:/root/.m2/repository/org/sonatype/plexus/plexus-sec-dispatcher/1.4/plexus-sec-dispatcher-1.4.jar
-[ERROR
+# Run with debug to verify plugin version
+- script: mvn help:effective-pom -Doutput=effective-pom.xml
+  displayName: 'Verify Effective POM'
+
+# Main build with forced Java 8 compatibility
+- task: Maven@3
+  inputs:
+    mavenPomFile: 'pom.xml'
+    goals: 'clean verify sonar:sonar'
+    options: >
+      -Dsonar.projectKey=$(SONAR_PROJECT_KEY)
+      -Dsonar.projectName=$(SONAR_PROJECT_KEY)
+      -Dsonar.host.url=$(SONARQUBE_URL)
+      -Dsonar.login=$(SONAR_TOKEN)
+      -Dsonar.java.binaries=target/classes
+      -Dsonar.sourceEncoding=UTF-8
+      -Dsonar.scanner.metadata.skip=true
+      -Dmaven.sonar.version=3.7.0.1746
+    publishJUnitResults: false
+  env:
+    JAVA_HOME: $(JAVA_HOME_8_X64)  # Explicitly set Java 8
+    SONAR_TOKEN: $(SONAR_TOKEN)
