@@ -1,2 +1,19 @@
 [ERROR] Failed to execute goal org.sonarsource.scanner.maven:sonar-maven-plugin:3.7.0.1746:sonar (default) on project ivolo: Not authorized. Please check the properties sonar.login and sonar.password. -> [Help 1]
-[ERROR] 
+
+====
+- task: Maven@3
+            inputs:
+              mavenPomFile: 'pom.xml'
+              goals: 'clean verify sonar:sonar'
+              options: |
+                -Dsonar.projectKey=$(SONAR_PROJECT_KEY)
+                -Dsonar.projectName=$(SONAR_PROJECT_KEY)
+                -Dsonar.host.url=$(SONARQUBE_URL)
+                -Dsonar.login=$(SONAR_TOKEN)
+                -Dsonar.java.binaries=target/classes
+                -Dsonar.sourceEncoding=UTF-8
+                -Dsonar.scanner.metadata.skip=true
+              publishJUnitResults: false
+            displayName: 'Run SonarQube Analysis'
+            env:
+              SONAR_TOKEN: $(SONAR_TOKEN)
