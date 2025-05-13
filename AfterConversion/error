@@ -1,5 +1,6 @@
-[ERROR] Reports path not found or is not a directory: /root/myagent/_work/10/s/voloJAR/target/surefire-reports
-[ERROR] Reports path not found or is not a directory: /root/myagent/_work/10/s/voloJAR/target/surefire-reports/*.xml
+[ERROR] Failed to execute goal org.sonarsource.scanner.maven:sonar-maven-plugin:3.7.0.1746:sonar (default) on project ivolo: The directory '/root/myagent/_work/10/s/voloWAR/src/main/java' does not exist for Maven module com.generate.project.web:ivolo:war:1.0.0. Please check the property sonar.tests -> [Help 1]
+[ERROR] 
+
 
 ====
 - task: Maven@3
