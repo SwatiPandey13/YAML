@@ -1,10 +1,5 @@
-[ERROR] Failed to execute goal org.sonarsource.scanner.maven:sonar-maven-plugin:3.7.0.1746:sonar (default) on project ivolo: Validation of project failed:
-[ERROR]   o "Volo
-[ERROR] -Dsonar.projectName=Volo
-[ERROR] -Dsonar.host.url=https://sonarqube.voya.net/
-[ERROR] -Dsonar.login=sqa_8f629bcea9ef8f37f5a0efd32a37dda93d731d16" is not a valid project key. Allowed characters are alphanumeric, '-', '_', '.' and ':', with at least one non-digit.
-[ERROR]   o "Volo
-[ERROR] -Dsonar.projectName=Volo
+[ERROR] Reports path not found or is not a directory: /root/myagent/_work/10/s/voloJAR/target/surefire-reports
+[ERROR] Reports path not found or is not a directory: /root/myagent/_work/10/s/voloJAR/target/surefire-reports/*.xml
 
 ====
 - task: Maven@3
