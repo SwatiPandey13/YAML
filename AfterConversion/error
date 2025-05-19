@@ -1,91 +1,62 @@
-steps:
 - script: |
-    echo "Starting sparse checkout process..."
+    echo "Starting repository access verification..."
+    
+    # First verify repository exists and is accessible
+    REPO_URL="$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_git/snyk-policy-config"
+    echo "Testing access to: $REPO_URL"
+    
+    # Use Azure DevOps REST API to verify access
+    if ! curl -s -I -H "Authorization: Bearer $(System.AccessToken)" "$REPO_URL" | grep -q "200 OK"; then
+      echo "##vso[task.logissue type=error]Repository not found or inaccessible"
+      echo "##[debug]Please verify:"
+      echo "##[debug]1. Repository name is correct (case-sensitive)"
+      echo "##[debug]2. Build service has 'Read' permissions"
+      echo "##[debug]3. Repository exists in project $(System.TeamProject)"
+      exit 1
+    fi
+
+    echo "Proceeding with sparse checkout..."
     mkdir -p snyk-config
     cd snyk-config
     
-    # Initialize fresh repo
     git init --initial-branch=main
     git config core.sparseCheckout true
     
-    # Verified remote URL format
-    REMOTE_URL="$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_git/snyk-policy-config"
-    echo "Using repository URL: $REMOTE_URL"
-    git remote add origin "$REMOTE_URL"
+    # Using alternative authentication method
+    git remote add origin "https://$(System.AccessToken)@dev.azure.com/$(System.TeamProject)/_git/snyk-policy-config"
     
-    # Configure sparse checkout (try both variants)
     echo "SAST_configs" > .git/info/sparse-checkout
     echo "SCA_configs" >> .git/info/sparse-checkout
     
-    # Perform the pull with full debugging
-    echo "Fetching content..."
-    git -c http.extraHeader="Authorization: Bearer $(System.AccessToken)" fetch --depth=1 origin main
-    echo "Checking out files..."
+    # Use git fetch with full error reporting
+    if ! git -c http.extraHeader="Authorization: Bearer $(System.AccessToken)" fetch --depth=1 origin main; then
+      echo "##vso[task.logissue type=error]Failed to fetch repository"
+      echo "##[debug]Possible causes:"
+      echo "##[debug]1. Branch 'main' doesn't exist"
+      echo "##[debug]2. Token expired or insufficient permissions"
+      exit 1
+    fi
+    
     git checkout FETCH_HEAD
     
-    # Enhanced debugging
-    echo "Repository contents after checkout:"
-    find . -type d -print
-    echo "SAST_configs contents:"
-    ls -la SAST_configs/ || echo "SAST_configs not found"
-    echo "SCA_configs contents:"
-    ls -la SCA_configs/ || echo "SCA_configs not found"
+    # Verify contents
+    echo "Repository contents:"
+    find . -maxdepth 3 -type d -print
     
-    # Robust copy with verification
     if [ -d "SAST_configs" ] && [ -d "SCA_configs" ]; then
       echo "Copying config files..."
       cp -rv SAST_configs ../
       cp -rv SCA_configs ../
-      echo "##[section]Successfully copied config files"
+      echo "##[section]Files copied successfully"
     else
-      echo "##vso[task.logissue type=error]CRITICAL: Config directories missing!"
-      echo "##[debug]Current directory structure:"
+      echo "##vso[task.logissue type=error]Config directories not found"
+      echo "##[debug]Available directories:"
       find . -type d -print
+      echo "##[debug]Try:"
+      echo "##[debug]1. Check exact directory names (case-sensitive)"
+      echo "##[debug]2. Verify directory exists in branch 'main'"
       exit 1
     fi
-  displayName: 'Sparse checkout snyk-config'
+  displayName: 'Secure Snyk Config Checkout'
   env:
     GIT_TERMINAL_PROMPT: 0
-
-
-
-Initialized empty Git repository in /root/myagent/_work/9/s/snyk-config/.git/
-Using repository URL: https://dev.azure.com/Voya-Projects/_git/snyk-policy-config
-Fetching content...
-remote: TF401019: The Git repository with name or identifier snyk-policy-config does not exist or you do not have permissions for the operation you are attempting.
-fatal: repository 'https://dev.azure.com/Voya-Projects/_git/snyk-policy-config/' not found
-Checking out files...
-error: pathspec 'FETCH_HEAD' did not match any file(s) known to git
-Repository contents after checkout:
-.
-./.git
-./.git/branches
-./.git/hooks
-./.git/info
-./.git/refs
-./.git/refs/heads
-./.git/refs/tags
-./.git/objects
-./.git/objects/pack
-./.git/objects/info
-SAST_configs contents:
-ls: cannot access 'SAST_configs/': No such file or directory
-SAST_configs not found
-SCA_configs contents:
-ls: cannot access 'SCA_configs/': No such file or directory
-SCA_configs not found
-##[error]CRITICAL: Config directories missing!
-##[debug]Current directory structure:
-.
-./.git
-./.git/branches
-./.git/hooks
-./.git/info
-./.git/refs
-./.git/refs/heads
-./.git/refs/tags
-./.git/objects
-./.git/objects/pack
-./.git/objects/info
-
-##[error]Bash exited with code '1'.
