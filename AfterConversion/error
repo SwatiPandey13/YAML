@@ -1,24 +1,15 @@
-[ERROR] Reports path not found or is not a directory: /root/myagent/_work/10/s/voloJAR/target/surefire-reports
-[ERROR] Reports path not found or is not a directory: /root/myagent/_work/10/s/voloJAR/target/surefire-reports/*.xml
-[ERROR] Coverage report can't be loaded, report file not found, ignoring this file codecoverage.out.
-
-
-====
-- task: Maven@3
-            inputs:
-              mavenPomFile: 'pom.xml'
-              goals: 'clean verify sonar:sonar'
-              options: >
-                -Dsonar.projectKey=$(SONAR_PROJECT_KEY)
-                -Dsonar.projectName=$(SONAR_PROJECT_KEY)
-                -Dsonar.host.url=$(SONARQUBE_URL)
-                -Dsonar.login=$(SONARQUBE_TOKEN)
-                -Dsonar.java.binaries=target/classes
-                -Dsonar.sourceEncoding=UTF-8
-                -Dsonar.scanner.metadata.skip=true
-                -Dsonar.test.exclusions=**/*
-                -Dsonar.junit.skip=true        
-              publishJUnitResults: false
-            displayName: 'Run SonarQube Analysis'
-            env:
-              SONAR_TOKEN: $(SONARQUBE_TOKEN)
+steps:
+- script: |
+    mkdir -p snyk-config
+    cd snyk-config
+    git init
+    git remote add origin $(System.TeamFoundationCollectionUri)$(System.TeamProject)/_git/snyk-policy
+    git config core.sparseCheckout true
+    echo "SAST_configs/" > .git/info/sparse-checkout
+    echo "SCA_configs/" >> .git/info/sparse-checkout
+    git pull origin ${{ parameters.branch }} --depth=1
+    cp -a ./SAST_configs ../
+    cp -a ./SCA_configs ../
+  displayName: 'Sparse checkout via script'
+  env:
+    GIT_TERMINAL_PROMPT: 0  # Disable prompts
