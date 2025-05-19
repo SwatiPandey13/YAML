@@ -7,7 +7,7 @@ steps:
     git config core.sparseCheckout true
     echo "SAST_configs/" > .git/info/sparse-checkout
     echo "SCA_configs/" >> .git/info/sparse-checkout
-    git pull origin ${{ parameters.branch }} --depth=1
+    git pull origin main --depth=1
     cp -a ./SAST_configs ../
     cp -a ./SCA_configs ../
   displayName: 'Sparse checkout via script'
@@ -15,17 +15,19 @@ steps:
     GIT_TERMINAL_PROMPT: 0  # Disable prompts
 
 
-hint: Using 'master' as the name for the initial branch. This default branch name
-hint: is subject to change. To configure the initial branch name to use in all
-hint: of your new repositories, which will suppress this warning, call:
-hint: 
-hint: 	git config --global init.defaultBranch <name>
-hint: 
-hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
-hint: 'development'. The just-created branch can be renamed via this command:
-hint: 
-hint: 	git branch -m <name>
-Initialized empty Git repository in /root/myagent/_work/9/s/snyk-config/.git/
-fatal: could not read Username for 'https://dev.azure.com': terminal prompts disabled
-cp: cannot stat './SAST_configs': No such file or directory
-cp: cannot stat './SCA_configs': No such file or directory
+======
+
+ - script: |
+      mkdir -p snyk-config
+      cd snyk-config
+      git init
+      git remote add origin $(System.TeamFoundationCollectionUri)$(System.TeamProject)/_git/snyk-policy-config
+      git config core.sparseCheckout true
+      echo "SAST_configs/" > .git/info/sparse-checkout
+      echo "SCA_configs/" >> .git/info/sparse-checkout
+      git pull origin main --depth=1
+      cp -a ./SAST_configs ../
+      cp -a ./SCA_configs ../
+    displayName: 'Sparse checkout via script'
+    env:
+      GIT_TERMINAL_PROMPT: 0  # Disable prompts
