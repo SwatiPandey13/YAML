@@ -1,62 +1,26 @@
+steps:
 - script: |
-    echo "Starting repository access verification..."
-    
-    # First verify repository exists and is accessible
-    REPO_URL="$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_git/snyk-policy-config"
-    echo "Testing access to: $REPO_URL"
-    
-    # Use Azure DevOps REST API to verify access
-    if ! curl -s -I -H "Authorization: Bearer $(System.AccessToken)" "$REPO_URL" | grep -q "200 OK"; then
-      echo "##vso[task.logissue type=error]Repository not found or inaccessible"
-      echo "##[debug]Please verify:"
-      echo "##[debug]1. Repository name is correct (case-sensitive)"
-      echo "##[debug]2. Build service has 'Read' permissions"
-      echo "##[debug]3. Repository exists in project $(System.TeamProject)"
-      exit 1
-    fi
-
-    echo "Proceeding with sparse checkout..."
+    echo "Starting cross-project checkout..."
     mkdir -p snyk-config
     cd snyk-config
     
+    # Initialize with explicit authentication
     git init --initial-branch=main
     git config core.sparseCheckout true
     
-    # Using alternative authentication method
-    git remote add origin "https://$(System.AccessToken)@dev.azure.com/$(System.TeamProject)/_git/snyk-policy-config"
+    # Use full cross-project URL format
+    git remote add origin "https://$(System.AccessToken)@dev.azure.com/$(System.TeamProject)/_git/snyk-policy-config?path=/&version=GBmain"
     
     echo "SAST_configs" > .git/info/sparse-checkout
     echo "SCA_configs" >> .git/info/sparse-checkout
     
-    # Use git fetch with full error reporting
-    if ! git -c http.extraHeader="Authorization: Bearer $(System.AccessToken)" fetch --depth=1 origin main; then
-      echo "##vso[task.logissue type=error]Failed to fetch repository"
-      echo "##[debug]Possible causes:"
-      echo "##[debug]1. Branch 'main' doesn't exist"
-      echo "##[debug]2. Token expired or insufficient permissions"
-      exit 1
-    fi
-    
+    # Fetch with explicit authentication header
+    git -c http.extraHeader="Authorization: Bearer $(System.AccessToken)" fetch --depth=1 origin main
     git checkout FETCH_HEAD
     
-    # Verify contents
-    echo "Repository contents:"
-    find . -maxdepth 3 -type d -print
-    
-    if [ -d "SAST_configs" ] && [ -d "SCA_configs" ]; then
-      echo "Copying config files..."
-      cp -rv SAST_configs ../
-      cp -rv SCA_configs ../
-      echo "##[section]Files copied successfully"
-    else
-      echo "##vso[task.logissue type=error]Config directories not found"
-      echo "##[debug]Available directories:"
-      find . -type d -print
-      echo "##[debug]Try:"
-      echo "##[debug]1. Check exact directory names (case-sensitive)"
-      echo "##[debug]2. Verify directory exists in branch 'main'"
-      exit 1
-    fi
-  displayName: 'Secure Snyk Config Checkout'
+    # Copy files
+    cp -r SAST_configs ../
+    cp -r SCA_configs ../
+  displayName: 'Cross-project Snyk config checkout'
   env:
     GIT_TERMINAL_PROMPT: 0
