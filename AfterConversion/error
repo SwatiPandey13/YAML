@@ -41,3 +41,25 @@ steps:
   displayName: 'Sparse checkout via script'
   env:
     GIT_TERMINAL_PROMPT: 0
+
+Initialized empty Git repository in /root/myagent/_work/9/s/snyk-config/.git/
+Using repository URL: https://dev.azure.com/Voya-Projects/_git/snyk-policy-config
+Configuring sparse checkout paths...
+Pulling files...
+From https://dev.azure.com/Voya-Projects/_git/snyk-policy-config
+ * branch            main       -> FETCH_HEAD
+ * [new branch]      main       -> origin/main
+Contents after pull:
+total 4
+drwxr-xr-x. 3 root root   18 May 19 08:19 .
+drwxr-xr-x. 9 root root 4096 May 19 08:19 ..
+drwxr-xr-x. 8 root root  177 May 19 08:19 .git
+##[error]Required directories not found after pull!
+Current directory contents:
+total 4
+drwxr-xr-x. 3 root root   18 May 19 08:19 .
+drwxr-xr-x. 9 root root 4096 May 19 08:19 ..
+drwxr-xr-x. 8 root root  177 May 19 08:19 .git
+
+##[error]Bash exited with code '1'.
+
