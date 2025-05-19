@@ -4,62 +4,45 @@ steps:
     mkdir -p snyk-config
     cd snyk-config
     
-    # Initialize repo with debug output
+    # Initialize fresh repo
     git init --initial-branch=main
     git config core.sparseCheckout true
     
-    # Verify remote URL
+    # Verified remote URL format
     REMOTE_URL="$(System.TeamFoundationCollectionUri)$(System.TeamProject)/_git/snyk-policy-config"
     echo "Using repository URL: $REMOTE_URL"
     git remote add origin "$REMOTE_URL"
     
-    # Set up sparse checkout
-    echo "Configuring sparse checkout paths..."
-    echo "SAST_configs/" > .git/info/sparse-checkout
-    echo "SCA_configs/" >> .git/info/sparse-checkout
+    # Configure sparse checkout (try both variants)
+    echo "SAST_configs" > .git/info/sparse-checkout
+    echo "SCA_configs" >> .git/info/sparse-checkout
     
-    # Perform the pull with authentication and debug
-    echo "Pulling files..."
-    git -c http.extraHeader="Authorization: Bearer $(System.AccessToken)" pull origin main --depth=1
+    # Perform the pull with full debugging
+    echo "Fetching content..."
+    git -c http.extraHeader="Authorization: Bearer $(System.AccessToken)" fetch --depth=1 origin main
+    echo "Checking out files..."
+    git checkout FETCH_HEAD
     
-    # Debug: Show pulled files
-    echo "Contents after pull:"
-    ls -la
+    # Enhanced debugging
+    echo "Repository contents after checkout:"
+    find . -type d -print
+    echo "SAST_configs contents:"
+    ls -la SAST_configs/ || echo "SAST_configs not found"
+    echo "SCA_configs contents:"
+    ls -la SCA_configs/ || echo "SCA_configs not found"
     
-    # Verify directories exist before copying
-    if [ -d "./SAST_configs" ] && [ -d "./SCA_configs" ]; then
+    # Robust copy with verification
+    if [ -d "SAST_configs" ] && [ -d "SCA_configs" ]; then
       echo "Copying config files..."
-      cp -a ./SAST_configs ../
-      cp -a ./SCA_configs ../
-      echo "Copy completed successfully"
+      cp -rv SAST_configs ../
+      cp -rv SCA_configs ../
+      echo "##[section]Successfully copied config files"
     else
-      echo "##vso[task.logissue type=error]Required directories not found after pull!"
-      echo "Current directory contents:"
-      ls -la
+      echo "##vso[task.logissue type=error]CRITICAL: Config directories missing!"
+      echo "##[debug]Current directory structure:"
+      find . -type d -print
       exit 1
     fi
-  displayName: 'Sparse checkout via script'
+  displayName: 'Sparse checkout snyk-config'
   env:
     GIT_TERMINAL_PROMPT: 0
-
-Initialized empty Git repository in /root/myagent/_work/9/s/snyk-config/.git/
-Using repository URL: https://dev.azure.com/Voya-Projects/_git/snyk-policy-config
-Configuring sparse checkout paths...
-Pulling files...
-From https://dev.azure.com/Voya-Projects/_git/snyk-policy-config
- * branch            main       -> FETCH_HEAD
- * [new branch]      main       -> origin/main
-Contents after pull:
-total 4
-drwxr-xr-x. 3 root root   18 May 19 08:19 .
-drwxr-xr-x. 9 root root 4096 May 19 08:19 ..
-drwxr-xr-x. 8 root root  177 May 19 08:19 .git
-##[error]Required directories not found after pull!
-Current directory contents:
-total 4
-drwxr-xr-x. 3 root root   18 May 19 08:19 .
-drwxr-xr-x. 9 root root 4096 May 19 08:19 ..
-drwxr-xr-x. 8 root root  177 May 19 08:19 .git
-
-##[error]Bash exited with code '1'.
-
