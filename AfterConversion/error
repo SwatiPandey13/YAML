@@ -46,3 +46,46 @@ steps:
   displayName: 'Sparse checkout snyk-config'
   env:
     GIT_TERMINAL_PROMPT: 0
+
+
+
+Initialized empty Git repository in /root/myagent/_work/9/s/snyk-config/.git/
+Using repository URL: https://dev.azure.com/Voya-Projects/_git/snyk-policy-config
+Fetching content...
+remote: TF401019: The Git repository with name or identifier snyk-policy-config does not exist or you do not have permissions for the operation you are attempting.
+fatal: repository 'https://dev.azure.com/Voya-Projects/_git/snyk-policy-config/' not found
+Checking out files...
+error: pathspec 'FETCH_HEAD' did not match any file(s) known to git
+Repository contents after checkout:
+.
+./.git
+./.git/branches
+./.git/hooks
+./.git/info
+./.git/refs
+./.git/refs/heads
+./.git/refs/tags
+./.git/objects
+./.git/objects/pack
+./.git/objects/info
+SAST_configs contents:
+ls: cannot access 'SAST_configs/': No such file or directory
+SAST_configs not found
+SCA_configs contents:
+ls: cannot access 'SCA_configs/': No such file or directory
+SCA_configs not found
+##[error]CRITICAL: Config directories missing!
+##[debug]Current directory structure:
+.
+./.git
+./.git/branches
+./.git/hooks
+./.git/info
+./.git/refs
+./.git/refs/heads
+./.git/refs/tags
+./.git/objects
+./.git/objects/pack
+./.git/objects/info
+
+##[error]Bash exited with code '1'.
