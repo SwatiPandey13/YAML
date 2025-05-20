@@ -1,5 +1,3 @@
-snyk-code-scan-template.yml
-
 # Reusable Snyk Code Scan Template for Azure DevOps
 parameters:
 - name: snykDebugEnabled
@@ -13,7 +11,7 @@ parameters:
   default: $(Build.Repository.Name)
 - name: buildTool
   type: string
-  default: ''  # Optional: Set in calling pipeline
+  default: ''
 - name: platform
   type: string
   default: 'linux'
@@ -27,21 +25,16 @@ jobs:
       mkdir -p snyk-config
       cd snyk-config
       
-      # Initialize with explicit authentication
       git init --initial-branch=main
       git config core.sparseCheckout true
-      
-      # Use full cross-project URL format
       git remote add origin "https://dev.azure.com/Voya-Projects/snyk-policy-config/_git/snyk-policy-config"
       
       echo "SAST_configs" > .git/info/sparse-checkout
       echo "SCA_configs" >> .git/info/sparse-checkout
       
-      # Fetch with explicit authentication header
       git -c http.extraHeader="Authorization: Bearer $(System.AccessToken)" fetch --depth=1 origin main
       git checkout FETCH_HEAD
       
-      # Copy files
       cp -r SAST_configs ../
       cp -r SCA_configs ../
     displayName: 'Cross-project Snyk config checkout'
@@ -55,15 +48,12 @@ jobs:
         Copy-Item -Path "snyk-policy-config/SCA_configs" -Destination "SCA_configs" -Recurse -Force
       displayName: 'Fetch Snyk Configs (Windows)'
 
-  # Parse Snyk config
   - task: Bash@3
     name: ParseSnykConfig
     inputs:
       targetType: 'inline'
       script: |
-        # Read config file
         CONFIG_LINE=$(grep "${REPO_NAME}:" SAST_configs/snyk-config.txt || echo "")
-        
         if [ -z "$CONFIG_LINE" ]; then
           echo "##vso[task.setvariable variable=SKIP_SNYK]true"
           echo "##vso[task.logissue type=warning]Snyk scan skipped - config not found for ${REPO_NAME}"
@@ -83,12 +73,10 @@ jobs:
     env:
       REPO_NAME: ${{ parameters.repoName }}
 
-  # Skip if no config found
   - ${{ if eq(variables.SKIP_SNYK, 'true') }}:
     - script: echo "Snyk scan skipped - no configuration found"
       displayName: 'Skip Snyk Scan'
 
-  # Run Snyk scan
   - ${{ if ne(variables.SKIP_SNYK, 'true') }}:
     - task: SnykSecurityScan@1
       displayName: 'Snyk Code Scan'
@@ -96,19 +84,10 @@ jobs:
         testType: 'code'
         severityThreshold: '$(SEVERITY)'
         monitorWhen: 'never'
-        additionalArguments: $[
-        format(
-            '--report --project-name={0}-{1}-SnykCode --org={2} --no-cache --insecure{3}',
-            variables['REPO_NAME'],
-            variables['BRANCH_NAME'],
-            variables['ORG_ID'],
-            format(' {0}', parameters.snykDebugEnabled ? '--debug' : '').trim()
-        )
-        ]
+        additionalArguments: '--report --project-name=$(REPO_NAME)-$(BRANCH_NAME)-SnykCode --org=$(ORG_ID) --no-cache --insecure${{ if eq(parameters.snykDebugEnabled, true) }} --debug${{ end }}'
       env:
         SNYK_TOKEN: $(SNYK_AUTH_KEY)
 
-    # Handle ignore files
     - ${{ if and(ne(variables.IGNORE_FILES, ''), ne(variables.IGNORE_FILES, 'null')) }}:
       - task: Bash@3
         displayName: 'Apply Snyk Ignore Rules'
@@ -120,7 +99,6 @@ jobs:
               snyk ignore --file-path="$file" --org=$ORG_ID
             done
 
-    # Python-specific handling
     - ${{ if contains(parameters.buildTool, 'python') }}:
       - task: Bash@3
         displayName: 'Run Snyk for Python'
@@ -132,12 +110,12 @@ jobs:
               --org=${{ variables.ORG_ID }} \
               --severity-threshold=${{ variables.SEVERITY }}
 
-    # Set completion flag
     - script: echo "##vso[task.setvariable variable=SnykCompleted]true"
       displayName: 'Mark Snyk Scan Complete'
 
++==================================================================
 
-============================
+
 trigger: none
 pool:
   name: RHEL8_Servers
@@ -161,7 +139,7 @@ resources:
       ref: workflowlib
       
 stages:
-- stage: Intilize_pipeline_with_security_scan
+- stage: Initialize_pipeline_with_security_scan
   jobs:
   - template: snyk-code-scan-template.yml@shared
     parameters:
@@ -170,7 +148,3 @@ stages:
       repoName: $(Build.Repository.Name)
       buildTool: 'python'
       platform: 'linux'
-
-===========================
-
-/snyk-code-scan-template.yml@shared: (Line: 103, Col: 68, Idx: 3745) - (Line: 103, Col: 68, Idx: 3745): While scanning a simple key, could not find expected ':'.
