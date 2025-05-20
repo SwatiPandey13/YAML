@@ -1,7 +1,262 @@
-additionalArguments: ${{ 
-      concat(
-        '--report --project-name=', variables['REPO_NAME'], '-', variables['BRANCH_NAME'], 
-        '-SnykCode --org=', variables['ORG_ID'], ' --no-cache --insecure',
-        parameters.snykDebugEnabled ? ' --debug' : ''
-      )
-    }}
+# Reusable Snyk Code Scan Template for Azure DevOps
+parameters:
+- name: snykDebugEnabled
+  type: boolean
+  default: false
+- name: branchName
+  type: string
+  default: $(Build.SourceBranchName)
+- name: repoName
+  type: string
+  default: $(Build.Repository.Name)
+- name: buildTool
+  type: string
+  default: ''  # Optional: Set in calling pipeline
+- name: platform
+  type: string
+  default: 'linux'
+
+jobs:
+- job: SnykCodeScan
+  condition: and(succeeded(), ne(variables['SnykCompleted'], 'true'), not(startsWith(variables['Build.SourceBranch'], 'PR-')), not(startsWith(variables['Build.SourceBranch'], 'pilot')))
+  steps:
+  # - checkout: self
+  #   clean: true
+
+  - script: |
+      echo "Starting cross-project checkout..."
+      mkdir -p snyk-config
+      cd snyk-config
+      
+      # Initialize with explicit authentication
+      git init --initial-branch=main
+      git config core.sparseCheckout true
+      
+      # Use full cross-project URL format
+      git remote add origin "https://dev.azure.com/Voya-Projects/snyk-policy-config/_git/snyk-policy-config"
+      
+      echo "SAST_configs" > .git/info/sparse-checkout
+      echo "SCA_configs" >> .git/info/sparse-checkout
+      
+      # Fetch with explicit authentication header
+      git -c http.extraHeader="Authorization: Bearer 5r1LsLlDDfMenFD5Od8QbnuU1hLgqZxpSSntFgfndQWAzLEYOehQJQQJ99BEACAAAAAdXslUAAASAZDO1L1o" fetch --depth=1 origin main
+      git checkout FETCH_HEAD
+      
+      # Copy files
+      cp -r SAST_configs ../
+      cp -r SCA_configs ../
+    displayName: 'Cross-project Snyk config checkout'
+    env:
+      GIT_TERMINAL_PROMPT: 0
+
+
+
+
+  # - script: |
+  #     echo "Starting sparse checkout process..."
+  #     mkdir -p snyk-config
+  #     cd snyk-config
+      
+  #     # Initialize repo with debug output
+  #     git init --initial-branch=main
+  #     git config core.sparseCheckout true
+      
+  #     # Verify remote URL
+  #     REMOTE_URL="$(System.TeamFoundationCollectionUri)_git/snyk-policy-config"
+  #     echo "Using repository URL: $REMOTE_URL"
+  #     git remote add origin "$REMOTE_URL"
+      
+  #     # Set up sparse checkout
+  #     echo "Configuring sparse checkout paths..."
+  #     echo "SAST_configs/" > .git/info/sparse-checkout
+  #     echo "SCA_configs/" >> .git/info/sparse-checkout
+      
+  #     # Perform the pull with authentication and debug
+  #     echo "Pulling files..."
+  #     git -c http.extraHeader="Authorization: Bearer 6FNd7Q7SltNZ64aHHZgJeeoBIDJh11ywtFKdS84rhJx9Cd0n2jrbJQQJ99BEACAAAAAdXslUAAASAZDOxmbp" pull origin main --depth=1
+      
+  #     # Debug: Show pulled files
+  #     echo "Contents after pull:"
+  #     ls -la
+      
+  #     # Verify directories exist before copying
+  #     if [ -d "./SAST_configs" ] && [ -d "./SCA_configs" ]; then
+  #       echo "Copying config files..."
+  #       cp -a ./SAST_configs ../
+  #       cp -a ./SCA_configs ../
+  #       echo "Copy completed successfully"
+  #     else
+  #       echo "##vso[task.logissue type=error]Required directories not found after pull!"
+  #       echo "Current directory contents:"
+  #       ls -la
+  #       exit 1
+  #     fi
+  #   displayName: 'Sparse checkout via script'
+  #   env:
+  #     GIT_TERMINAL_PROMPT: 0
+  # - script: |
+  #     mkdir -p snyk-config
+  #     cd snyk-config
+  #     git init --initial-branch=main
+  #     git config core.sparseCheckout true
+  #     git remote add origin $(System.TeamFoundationCollectionUri)$(System.TeamProject)/_git/snyk-policy-config
+     
+  #     echo "SAST_configs/" > .git/info/sparse-checkout
+  #     echo "SCA_configs/" >> .git/info/sparse-checkout
+  #     git -c http.extraHeader="Authorization: Bearer 6FNd7Q7SltNZ64aHHZgJeeoBIDJh11ywtFKdS84rhJx9Cd0n2jrbJQQJ99BEACAAAAAdXslUAAASAZDOxmbp pull origin main --depth=1"
+  #     cp -a ./SAST_configs ../
+  #     cp -a ./SCA_configs ../
+  #   displayName: 'Sparse checkout via script'
+  #   env:
+  #     GIT_TERMINAL_PROMPT: 0  # Disable prompts
+
+  # - checkout: git://Voya-Projects/snyk-policy-config@main
+  #   path: snyk-policy-config
+  #   fetch: 1
+  #   lfs: false
+  #   submodule: false
+  #   persistCredentials: true
+  #   sparseCheckoutPaths: |
+  #     SAST_configs/
+  #     SCA_configs/
+  #   displayName: 'Checkout Snyk Config files'
+  #   clean: true
+
+  # - script: |
+  #     ls -l snyk-config/SAST_configs
+  #     ls -l snyk-config/SCA_configs
+    
+  #     cp -a snyk-config/SAST_configs .
+  #     cp -a snyk-config/SCA_configs .
+
+  #     rm -rf snyk-config
+  #   displayName: 'Deploy Snyk config files'
+  #   workingDirectory: $(Build.SourcesDirectory)
+
+  # # Clone Snyk configs
+  # - ${{ if eq(parameters.platform, 'linux') }}:
+  #   - script: |
+  #       mkdir -p snyk-config
+  #       cd snyk-config
+  #       git init
+  #       git remote add origin -f https://Voya-Projects@dev.azure.com/Voya-Projects/snyk-policy-config/_git/snyk-policy-config
+  #       git config core.sparseCheckout true
+  #       echo "SAST_configs" > .git/info/sparse-checkout
+  #       echo "SCA_configs" >> .git/info/sparse-checkout
+  #       git pull origin main --depth=1
+  #       cp -a ./SAST_configs ../
+  #       cp -a ./SCA_configs ../
+  #     displayName: 'Fetch Snyk Configs (Linux)'
+
+  - ${{ if eq(parameters.platform, 'windows') }}:
+    - powershell: |
+        git clone --depth 1 https://Voya-Projects@dev.azure.com/Voya-Projects/snyk-policy-config/_git/snyk-policy-config
+        Copy-Item -Path "snyk-policy-config/SAST_configs" -Destination "SAST_configs" -Recurse -Force
+        Copy-Item -Path "snyk-policy-config/SCA_configs" -Destination "SCA_configs" -Recurse -Force
+      displayName: 'Fetch Snyk Configs (Windows)'
+
+  # Parse Snyk config
+  - task: Bash@3
+    name: ParseSnykConfig
+    inputs:
+      targetType: 'inline'
+      script: |
+        # Read config file
+
+        # CONFIG_LINE=$(grep "${REPO_NAME}:" SAST_configs || echo "")
+        
+        CONFIG_LINE=$(grep "${REPO_NAME}:" SCA_configs || echo "")
+        
+        if [ -z "$CONFIG_LINE" ]; then
+          echo "##vso[task.setvariable variable=SKIP_SNYK]true"
+          echo "##vso[task.logissue type=warning]Snyk scan skipped - config not found for ${REPO_NAME}"
+          exit 0
+        fi
+
+        IFS=':' read -ra CONFIG_PARTS <<< "$CONFIG_LINE"
+        ORG_ID=${CONFIG_PARTS[1]}
+        SEVERITY=${CONFIG_PARTS[2]}
+        ENABLE_CLI=${CONFIG_PARTS[3]}
+        IGNORE_FILES=${CONFIG_PARTS[4]}
+
+        echo "##vso[task.setvariable variable=ORG_ID]$ORG_ID"
+        echo "##vso[task.setvariable variable=SEVERITY]$SEVERITY"
+        echo "##vso[task.setvariable variable=ENABLE_CLI]$ENABLE_CLI"
+        echo "##vso[task.setvariable variable=IGNORE_FILES]$IGNORE_FILES"
+    env:
+      REPO_NAME: 'Volo' #${{ parameters.repoName }}
+
+  # Skip if no config found
+  - ${{ if eq(variables.SKIP_SNYK, 'true') }}:
+    - script: echo "Snyk scan skipped - no configuration found"
+      displayName: 'Skip Snyk Scan'
+
+  # Run Snyk scan
+  - ${{ if ne(variables.SKIP_SNYK, 'true') }}:
+    - task: SnykSecurityScan@1
+      inputs:
+        serviceConnectionEndpoint: 'SnykConnection'
+        testType: 'code'
+        failOnIssues: true
+        projectName: 'Volo'
+        codeSeverityThreshold: 'medium'
+        organization: '$ORG_ID'
+        # additionalArguments: '--report --org=$(ORG_ID) --no-cache'
+
+    # Handle ignore files
+    - ${{ if ne(variables.IGNORE_FILES, '') }}:
+      - task: Bash@3
+        displayName: 'Apply Snyk Ignore Rules'
+        inputs:
+          targetType: 'inline'
+          script: |
+            IFS=',' read -ra FILES_TO_IGNORE <<< "$(IGNORE_FILES)"
+            for file in "${FILES_TO_IGNORE[@]}"; do
+              snyk ignore --file-path="$file"
+            done
+
+    # Python-specific handling
+    - ${{ if contains(parameters.buildTool, 'python') }}:
+      - task: Bash@3
+        displayName: 'Run Snyk for Python'
+        inputs:
+          targetType: 'inline'
+          script: |
+            snyk code test --command=python3 \
+              --project-name=$(REPO_NAME)-$(BRANCH_NAME)-SnykCode \
+              --org=$(ORG_ID) \
+              --severity-threshold=$(SEVERITY)
+
+    # Set completion flag
+    - script: echo "##vso[task.setvariable variable=SnykCompleted]true"
+      displayName: 'Mark Snyk Scan Complete'
+
+
+
+=======================================================================================
+
+##[debug]debug=undefined
+##[debug]which '/root/myagent/_work/_temp/snyk-to-html-linux'
+##[debug]found: '/root/myagent/_work/_temp/snyk-to-html-linux'
+##[debug]/root/myagent/_work/_temp/snyk-to-html-linux arg: -i
+##[debug]/root/myagent/_work/_temp/snyk-to-html-linux arg: /root/myagent/_work/_temp/report-2025-05-20T09-52-19.json
+##[debug]exec tool: /root/myagent/_work/_temp/snyk-to-html-linux
+##[debug]arguments:
+##[debug]   -i
+##[debug]   /root/myagent/_work/_temp/report-2025-05-20T09-52-19.json
+##[debug]Exit code 0 received from tool '/root/myagent/_work/_temp/snyk-to-html-linux'
+##[debug]STDIO streams have closed for tool '/root/myagent/_work/_temp/snyk-to-html-linux'
+##[debug]debug=undefined
+##[debug]debug=undefined
+/root/myagent/_work/_temp/report-2025-05-20T09-52-19.json does not exist... cannot attach
+/root/myagent/_work/_temp/report-2025-05-20T09-52-19.html exists... attaching file
+##[debug]Processed: ##vso[task.addattachment type=HTML_ATTACHMENT_TYPE;name=report-2025-05-20T09-52-19.html;]/root/myagent/_work/_temp/report-2025-05-20T09-52-19.html
+
+##[debug]debug=undefined
+
+##[debug]task result: Failed
+**********************************
+##[error]failing task because `snyk` was improperly used or had other errors
+##[debug]Processed: ##vso[task.issue type=error;]failing task because `snyk` was improperly used or had other errors
+** Snyk task will fail pipeline **
+**************************************
