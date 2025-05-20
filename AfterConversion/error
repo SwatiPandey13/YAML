@@ -1,34 +1,7 @@
-- task: SnykSecurityScan@1
-  displayName: 'Snyk Code Scan'
-  inputs:
-    testType: 'code'
-    severityThreshold: '$(SEVERITY)'
-    monitorWhen: 'never'
-    additionalArguments: ${{ 
-      format(
-        '--report --project-name={0}-{1}-SnykCode --org={2} --no-cache --insecure{3}',
-        variables['REPO_NAME'],
-        variables['BRANCH_NAME'],
-        variables['ORG_ID'],
-        format(' {0}', parameters.snykDebugEnabled ? '--debug' : '').trim()
+additionalArguments: ${{ 
+      concat(
+        '--report --project-name=', variables['REPO_NAME'], '-', variables['BRANCH_NAME'], 
+        '-SnykCode --org=', variables['ORG_ID'], ' --no-cache --insecure',
+        parameters.snykDebugEnabled ? ' --debug' : ''
       )
     }}
-  env:
-    SNYK_TOKEN: $(SNYK_AUTH_KEY)
-
-+==================
-
-
-- task: SnykSecurityScan@1
-  displayName: 'Snyk Code Scan'
-  inputs:
-    testType: 'code'
-    severityThreshold: '$(SEVERITY)'
-    monitorWhen: 'never'
-    additionalArguments: ${{ 
-      parameters.snykDebugEnabled 
-        ? '--report --project-name=$(REPO_NAME)-$(BRANCH_NAME)-SnykCode --org=$(ORG_ID) --no-cache --insecure --debug'
-        : '--report --project-name=$(REPO_NAME)-$(BRANCH_NAME)-SnykCode --org=$(ORG_ID) --no-cache --insecure'
-    }}
-  env:
-    SNYK_TOKEN: $(SNYK_AUTH_KEY)
