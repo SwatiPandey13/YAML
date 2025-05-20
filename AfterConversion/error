@@ -1,26 +1,133 @@
-steps:
-- script: |
-    echo "Starting cross-project checkout..."
-    mkdir -p snyk-config
-    cd snyk-config
-    
-    # Initialize with explicit authentication
-    git init --initial-branch=main
-    git config core.sparseCheckout true
-    
-    # Use full cross-project URL format
-    git remote add origin "https://$(System.AccessToken)@dev.azure.com/$(System.TeamProject)/_git/snyk-policy-config?path=/&version=GBmain"
-    
-    echo "SAST_configs" > .git/info/sparse-checkout
-    echo "SCA_configs" >> .git/info/sparse-checkout
-    
-    # Fetch with explicit authentication header
-    git -c http.extraHeader="Authorization: Bearer $(System.AccessToken)" fetch --depth=1 origin main
-    git checkout FETCH_HEAD
-    
-    # Copy files
-    cp -r SAST_configs ../
-    cp -r SCA_configs ../
-  displayName: 'Cross-project Snyk config checkout'
-  env:
-    GIT_TERMINAL_PROMPT: 0
+# Reusable Snyk Code Scan Template for Azure DevOps
+parameters:
+- name: snykDebugEnabled
+  type: boolean
+  default: false
+- name: branchName
+  type: string
+  default: $(Build.SourceBranchName)
+- name: repoName
+  type: string
+  default: $(Build.Repository.Name)
+- name: buildTool
+  type: string
+  default: ''  # Optional: Set in calling pipeline
+- name: platform
+  type: string
+  default: 'linux'
+
+jobs:
+- job: SnykCodeScan
+  condition: and(succeeded(), ne(variables['SnykCompleted'], 'true'), not(startsWith(variables['Build.SourceBranch'], 'PR-')), not(startsWith(variables['Build.SourceBranch'], 'pilot')))
+  steps:
+  # - checkout: self
+  #   clean: true
+
+  - script: |
+      echo "Starting cross-project checkout..."
+      mkdir -p snyk-config
+      cd snyk-config
+      
+      # Initialize with explicit authentication
+      git init --initial-branch=main
+      git config core.sparseCheckout true
+      
+      # Use full cross-project URL format
+      git remote add origin "https://dev.azure.com/Voya-Projects/snyk-policy-config/_git/snyk-policy-config"
+      
+      echo "SAST_configs" > .git/info/sparse-checkout
+      echo "SCA_configs" >> .git/info/sparse-checkout
+      
+      # Fetch with explicit authentication header
+      git -c http.extraHeader="Authorization: Bearer 5r1LsLlDDfMenFD5Od8QbnuU1hLgqZxpSSntFgfndQWAzLEYOehQJQQJ99BEACAAAAAdXslUAAASAZDO1L1o" fetch --depth=1 origin main
+      git checkout FETCH_HEAD
+      
+      # Copy files
+      cp -r SAST_configs ../
+      cp -r SCA_configs ../
+    displayName: 'Cross-project Snyk config checkout'
+    env:
+      GIT_TERMINAL_PROMPT: 0
+
+  - ${{ if eq(parameters.platform, 'windows') }}:
+    - powershell: |
+        git clone --depth 1 https://github.voya.net/Voya/snyk-policy-config.git
+        Copy-Item -Path "snyk-policy-config/SAST_configs" -Destination "SAST_configs" -Recurse -Force
+        Copy-Item -Path "snyk-policy-config/SCA_configs" -Destination "SCA_configs" -Recurse -Force
+      displayName: 'Fetch Snyk Configs (Windows)'
+
+  # Parse Snyk config
+  - task: Bash@3
+    name: ParseSnykConfig
+    inputs:
+      targetType: 'inline'
+      script: |
+        # Read config file
+        CONFIG_LINE=$(grep "${REPO_NAME}:" SAST_configs || echo "")
+        
+        if [ -z "$CONFIG_LINE" ]; then
+          echo "##vso[task.setvariable variable=SKIP_SNYK]true"
+          echo "##vso[task.logissue type=warning]Snyk scan skipped - config not found for ${REPO_NAME}"
+          exit 0
+        fi
+
+        IFS=':' read -ra CONFIG_PARTS <<< "$CONFIG_LINE"
+        ORG_ID=${CONFIG_PARTS[1]}
+        SEVERITY=${CONFIG_PARTS[2]}
+        ENABLE_CLI=${CONFIG_PARTS[3]}
+        IGNORE_FILES=${CONFIG_PARTS[4]}
+
+        echo "##vso[task.setvariable variable=ORG_ID]$ORG_ID"
+        echo "##vso[task.setvariable variable=SEVERITY]$SEVERITY"
+        echo "##vso[task.setvariable variable=ENABLE_CLI]$ENABLE_CLI"
+        echo "##vso[task.setvariable variable=IGNORE_FILES]$IGNORE_FILES"
+    env:
+      REPO_NAME: ${{ parameters.repoName }}
+
+  # Skip if no config found
+  - ${{ if eq(variables.SKIP_SNYK, 'true') }}:
+    - script: echo "Snyk scan skipped - no configuration found"
+      displayName: 'Skip Snyk Scan'
+
+  # Run Snyk scan
+  - ${{ if ne(variables.SKIP_SNYK, 'true') }}:
+    - task: SnykSecurityScan@1
+      inputs:
+        testType: 'code'
+        severityThreshold: '$(SEVERITY)'
+        monitorWhen: 'never'
+        additionalArguments: '--report --project-name=$(REPO_NAME)-$(BRANCH_NAME)-SnykCode --org=$(ORG_ID) --no-cache --insecure ${{ format('--debug', parameters.snykDebugEnabled) }}'
+      env:
+        SNYK_TOKEN: $(SNYK_AUTH_KEY)
+
+    # Handle ignore files
+    - ${{ if ne(variables.IGNORE_FILES, '') }}:
+      - task: Bash@3
+        displayName: 'Apply Snyk Ignore Rules'
+        inputs:
+          targetType: 'inline'
+          script: |
+            IFS=',' read -ra FILES_TO_IGNORE <<< "$(IGNORE_FILES)"
+            for file in "${FILES_TO_IGNORE[@]}"; do
+              snyk ignore --file-path="$file"
+            done
+
+    # Python-specific handling
+    - ${{ if contains(parameters.buildTool, 'python') }}:
+      - task: Bash@3
+        displayName: 'Run Snyk for Python'
+        inputs:
+          targetType: 'inline'
+          script: |
+            snyk code test --command=python3 \
+              --project-name=$(REPO_NAME)-$(BRANCH_NAME)-SnykCode \
+              --org=$(ORG_ID) \
+              --severity-threshold=$(SEVERITY)
+
+    # Set completion flag
+    - script: echo "##vso[task.setvariable variable=SnykCompleted]true"
+      displayName: 'Mark Snyk Scan Complete'
+
+
+=== 
+/snyk-code-scan-template.yml@shared (Line: 198, Col: 142):  While parsing a block mapping, did not find expected key.
