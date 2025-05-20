@@ -1,9 +1,3 @@
-/snyk-code-scan-template.yml@shared (Line: 97, Col: 34): The directive 'if' is not allowed in this context. Directives are not supported for expressions that are embedded within a string. Directives are only supported when the entire value is an expression.
-/snyk-code-scan-template.yml@shared (Line: 102, Col: 7): Unclosed function: 'and'. Located at position 1 within expression: and(ne(variables.IGNORE_FILES, ''), ne(variables.IGNORE_FILES, 'null'). For more help, refer to https://go.microsoft.com/fwlink/?linkid=842996
-
-
-========
-
 # Reusable Snyk Code Scan Template for Azure DevOps
 parameters:
 - name: snykDebugEnabled
@@ -93,19 +87,27 @@ jobs:
       displayName: 'Skip Snyk Scan'
 
   # Run Snyk scan
-    - ${{ if ne(variables.SKIP_SNYK, 'true') }}:
-      - task: SnykSecurityScan@1
-        displayName: 'Snyk Task'
-        inputs:
-            testType: 'code'
-            severityThreshold: '$(SEVERITY)'
-            monitorWhen: 'never'
-            additionalArguments: '--report --project-name=$(REPO_NAME)-$(BRANCH_NAME)-SnykCode --org=$(ORG_ID) --no-cache --insecure ${{ if eq(parameters.snykDebugEnabled, true) }}--debug${{ end }}'
-        env:
-            SNYK_TOKEN: $(SNYK_AUTH_KEY)
+  - ${{ if ne(variables.SKIP_SNYK, 'true') }}:
+    - task: SnykSecurityScan@1
+      displayName: 'Snyk Task'
+      inputs:
+        testType: 'code'
+        severityThreshold: '$(SEVERITY)'
+        monitorWhen: 'never'
+        additionalArguments: ${{ 
+          format(
+            '--report --project-name={0}-{1}-SnykCode --org={2} --no-cache --insecure{3}',
+            parameters.repoName,
+            parameters.branchName,
+            variables.ORG_ID,
+            format(' {0}', '--debug').replace(' ', '')
+          )
+        }}
+      env:
+        SNYK_TOKEN: $(SNYK_AUTH_KEY)
 
     # Handle ignore files
-    - ${{ if and(ne(variables.IGNORE_FILES, ''), ne(variables.IGNORE_FILES, 'null') }}:
+    - ${{ if and(ne(variables.IGNORE_FILES, ''), ne(variables.IGNORE_FILES, 'null')) }}:
       - task: Bash@3
         displayName: 'Apply Snyk Ignore Rules'
         inputs:
