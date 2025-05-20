@@ -1,150 +1,34 @@
-# Reusable Snyk Code Scan Template for Azure DevOps
-parameters:
-- name: snykDebugEnabled
-  type: boolean
-  default: false
-- name: branchName
-  type: string
-  default: $(Build.SourceBranchName)
-- name: repoName
-  type: string
-  default: $(Build.Repository.Name)
-- name: buildTool
-  type: string
-  default: ''
-- name: platform
-  type: string
-  default: 'linux'
+- task: SnykSecurityScan@1
+  displayName: 'Snyk Code Scan'
+  inputs:
+    testType: 'code'
+    severityThreshold: '$(SEVERITY)'
+    monitorWhen: 'never'
+    additionalArguments: ${{ 
+      format(
+        '--report --project-name={0}-{1}-SnykCode --org={2} --no-cache --insecure{3}',
+        variables['REPO_NAME'],
+        variables['BRANCH_NAME'],
+        variables['ORG_ID'],
+        format(' {0}', parameters.snykDebugEnabled ? '--debug' : '').trim()
+      )
+    }}
+  env:
+    SNYK_TOKEN: $(SNYK_AUTH_KEY)
 
-jobs:
-- job: SnykCodeScan
-  condition: and(succeeded(), ne(variables['SnykCompleted'], 'true'), not(startsWith(variables['Build.SourceBranch'], 'PR-')), not(startsWith(variables['Build.SourceBranch'], 'pilot')))
-  steps:
-  - script: |
-      echo "Starting cross-project checkout..."
-      mkdir -p snyk-config
-      cd snyk-config
-      
-      git init --initial-branch=main
-      git config core.sparseCheckout true
-      git remote add origin "https://dev.azure.com/Voya-Projects/snyk-policy-config/_git/snyk-policy-config"
-      
-      echo "SAST_configs" > .git/info/sparse-checkout
-      echo "SCA_configs" >> .git/info/sparse-checkout
-      
-      git -c http.extraHeader="Authorization: Bearer $(System.AccessToken)" fetch --depth=1 origin main
-      git checkout FETCH_HEAD
-      
-      cp -r SAST_configs ../
-      cp -r SCA_configs ../
-    displayName: 'Cross-project Snyk config checkout'
-    env:
-      GIT_TERMINAL_PROMPT: 0
-
-  - ${{ if eq(parameters.platform, 'windows') }}:
-    - powershell: |
-        git clone --depth 1 https://github.voya.net/Voya/snyk-policy-config.git
-        Copy-Item -Path "snyk-policy-config/SAST_configs" -Destination "SAST_configs" -Recurse -Force
-        Copy-Item -Path "snyk-policy-config/SCA_configs" -Destination "SCA_configs" -Recurse -Force
-      displayName: 'Fetch Snyk Configs (Windows)'
-
-  - task: Bash@3
-    name: ParseSnykConfig
-    inputs:
-      targetType: 'inline'
-      script: |
-        CONFIG_LINE=$(grep "${REPO_NAME}:" SAST_configs/snyk-config.txt || echo "")
-        if [ -z "$CONFIG_LINE" ]; then
-          echo "##vso[task.setvariable variable=SKIP_SNYK]true"
-          echo "##vso[task.logissue type=warning]Snyk scan skipped - config not found for ${REPO_NAME}"
-          exit 0
-        fi
-
-        IFS=':' read -ra CONFIG_PARTS <<< "$CONFIG_LINE"
-        ORG_ID=${CONFIG_PARTS[1]}
-        SEVERITY=${CONFIG_PARTS[2]}
-        ENABLE_CLI=${CONFIG_PARTS[3]}
-        IGNORE_FILES=${CONFIG_PARTS[4]}
-
-        echo "##vso[task.setvariable variable=ORG_ID]$ORG_ID"
-        echo "##vso[task.setvariable variable=SEVERITY]$SEVERITY"
-        echo "##vso[task.setvariable variable=ENABLE_CLI]$ENABLE_CLI"
-        echo "##vso[task.setvariable variable=IGNORE_FILES]$IGNORE_FILES"
-    env:
-      REPO_NAME: ${{ parameters.repoName }}
-
-  - ${{ if eq(variables.SKIP_SNYK, 'true') }}:
-    - script: echo "Snyk scan skipped - no configuration found"
-      displayName: 'Skip Snyk Scan'
-
-  - ${{ if ne(variables.SKIP_SNYK, 'true') }}:
-    - task: SnykSecurityScan@1
-      displayName: 'Snyk Code Scan'
-      inputs:
-        testType: 'code'
-        severityThreshold: '$(SEVERITY)'
-        monitorWhen: 'never'
-        additionalArguments: '--report --project-name=$(REPO_NAME)-$(BRANCH_NAME)-SnykCode --org=$(ORG_ID) --no-cache --insecure${{ if eq(parameters.snykDebugEnabled, true) }} --debug${{ end }}'
-      env:
-        SNYK_TOKEN: $(SNYK_AUTH_KEY)
-
-    - ${{ if and(ne(variables.IGNORE_FILES, ''), ne(variables.IGNORE_FILES, 'null')) }}:
-      - task: Bash@3
-        displayName: 'Apply Snyk Ignore Rules'
-        inputs:
-          targetType: 'inline'
-          script: |
-            IFS=',' read -ra FILES_TO_IGNORE <<< "$IGNORE_FILES"
-            for file in "${FILES_TO_IGNORE[@]}"; do
-              snyk ignore --file-path="$file" --org=$ORG_ID
-            done
-
-    - ${{ if contains(parameters.buildTool, 'python') }}:
-      - task: Bash@3
-        displayName: 'Run Snyk for Python'
-        inputs:
-          targetType: 'inline'
-          script: |
-            snyk code test --command=python3 \
-              --project-name=${{ parameters.repoName }}-${{ parameters.branchName }}-SnykCode \
-              --org=${{ variables.ORG_ID }} \
-              --severity-threshold=${{ variables.SEVERITY }}
-
-    - script: echo "##vso[task.setvariable variable=SnykCompleted]true"
-      displayName: 'Mark Snyk Scan Complete'
-
-+==================================================================
++==================
 
 
-trigger: none
-pool:
-  name: RHEL8_Servers
-
-variables:
-  - group: ArtifactorySettings
-  - name: BuildAgentImage
-    value: 'RHEL8_Servers'
-  - name: JAVA_HOME
-    value: /opt/app/jvm/jdk1.8.0_45
-  - name: MAVEN_HOME
-    value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
-  - name: M2_HOME
-    value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
-
-resources:
-  repositories:
-    - repository: shared
-      type: git
-      name: Workflowlib_Global_Template/DevOps_Global_Template
-      ref: workflowlib
-      
-stages:
-- stage: Initialize_pipeline_with_security_scan
-  jobs:
-  - template: snyk-code-scan-template.yml@shared
-    parameters:
-      snykDebugEnabled: false
-      branchName: $(Build.SourceBranchName)
-      repoName: $(Build.Repository.Name)
-      buildTool: 'python'
-      platform: 'linux'
+- task: SnykSecurityScan@1
+  displayName: 'Snyk Code Scan'
+  inputs:
+    testType: 'code'
+    severityThreshold: '$(SEVERITY)'
+    monitorWhen: 'never'
+    additionalArguments: ${{ 
+      parameters.snykDebugEnabled 
+        ? '--report --project-name=$(REPO_NAME)-$(BRANCH_NAME)-SnykCode --org=$(ORG_ID) --no-cache --insecure --debug'
+        : '--report --project-name=$(REPO_NAME)-$(BRANCH_NAME)-SnykCode --org=$(ORG_ID) --no-cache --insecure'
+    }}
+  env:
+    SNYK_TOKEN: $(SNYK_AUTH_KEY)
