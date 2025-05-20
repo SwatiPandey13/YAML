@@ -20,9 +20,6 @@ jobs:
 - job: SnykCodeScan
   condition: and(succeeded(), ne(variables['SnykCompleted'], 'true'), not(startsWith(variables['Build.SourceBranch'], 'PR-')), not(startsWith(variables['Build.SourceBranch'], 'pilot')))
   steps:
-  # - checkout: self
-  #   clean: true
-
   - script: |
       echo "Starting cross-project checkout..."
       mkdir -p snyk-config
@@ -39,7 +36,7 @@ jobs:
       echo "SCA_configs" >> .git/info/sparse-checkout
       
       # Fetch with explicit authentication header
-      git -c http.extraHeader="Authorization: Bearer 5r1LsLlDDfMenFD5Od8QbnuU1hLgqZxpSSntFgfndQWAzLEYOehQJQQJ99BEACAAAAAdXslUAAASAZDO1L1o" fetch --depth=1 origin main
+      git -c http.extraHeader="Authorization: Bearer $(System.AccessToken)" fetch --depth=1 origin main
       git checkout FETCH_HEAD
       
       # Copy files
@@ -63,7 +60,7 @@ jobs:
       targetType: 'inline'
       script: |
         # Read config file
-        CONFIG_LINE=$(grep "${REPO_NAME}:" SAST_configs || echo "")
+        CONFIG_LINE=$(grep "${REPO_NAME}:" SAST_configs/snyk-config.txt || echo "")
         
         if [ -z "$CONFIG_LINE" ]; then
           echo "##vso[task.setvariable variable=SKIP_SNYK]true"
@@ -94,22 +91,22 @@ jobs:
     - task: SnykSecurityScan@1
       inputs:
         testType: 'code'
-        severityThreshold: '$(SEVERITY)'
+        severityThreshold: '${{ variables.SEVERITY }}'
         monitorWhen: 'never'
-        additionalArguments: '--report --project-name=$(REPO_NAME)-$(BRANCH_NAME)-SnykCode --org=$(ORG_ID) --no-cache --insecure ${{ format('--debug', parameters.snykDebugEnabled) }}'
+        additionalArguments: '--report --project-name=${{ parameters.repoName }}-${{ parameters.branchName }}-SnykCode --org=${{ variables.ORG_ID }} --no-cache --insecure ${{ format('--debug {0}', parameters.snykDebugEnabled) }}'
       env:
         SNYK_TOKEN: $(SNYK_AUTH_KEY)
 
     # Handle ignore files
-    - ${{ if ne(variables.IGNORE_FILES, '') }}:
+    - ${{ if and(ne(variables.IGNORE_FILES, ''), ne(variables.IGNORE_FILES, 'null') }}:
       - task: Bash@3
         displayName: 'Apply Snyk Ignore Rules'
         inputs:
           targetType: 'inline'
           script: |
-            IFS=',' read -ra FILES_TO_IGNORE <<< "$(IGNORE_FILES)"
+            IFS=',' read -ra FILES_TO_IGNORE <<< "$IGNORE_FILES"
             for file in "${FILES_TO_IGNORE[@]}"; do
-              snyk ignore --file-path="$file"
+              snyk ignore --file-path="$file" --org=$ORG_ID
             done
 
     # Python-specific handling
@@ -120,14 +117,10 @@ jobs:
           targetType: 'inline'
           script: |
             snyk code test --command=python3 \
-              --project-name=$(REPO_NAME)-$(BRANCH_NAME)-SnykCode \
-              --org=$(ORG_ID) \
-              --severity-threshold=$(SEVERITY)
+              --project-name=${{ parameters.repoName }}-${{ parameters.branchName }}-SnykCode \
+              --org=${{ variables.ORG_ID }} \
+              --severity-threshold=${{ variables.SEVERITY }}
 
     # Set completion flag
     - script: echo "##vso[task.setvariable variable=SnykCompleted]true"
       displayName: 'Mark Snyk Scan Complete'
-
-
-=== 
-/snyk-code-scan-template.yml@shared (Line: 198, Col: 142):  While parsing a block mapping, did not find expected key.
