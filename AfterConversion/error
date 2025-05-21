@@ -1,4 +1,9 @@
-  - stage: Deploy_PROD
+Failed to execute goal com.googlecode.maven-download-plugin:download-maven-plugin:1.4.0:wget (download-descriptor-env) on project ivolo: Unable to parse configuration of mojo com.googlecode.maven-download-plugin:download-maven-plugin:1.4.0:wget for parameter uri: Cannot convert '${artifactory.resolve.contextUrl}/maven-trusted/com/voya/descriptor/1.0/descriptor-1.0-envconfig.xml' to URI: Illegal character in path at index 1: ${artifactory.resolve.contextUrl}/maven-trusted/com/voya/descriptor/1.0/descriptor-1.0-envconfig.xml -> [Help 1]
+[ERROR] 
+
+
+
+- stage: Deploy_PROD
     dependsOn: Build
     jobs:
       - deployment: Deploy_To_Prod
