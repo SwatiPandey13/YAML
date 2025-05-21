@@ -1,0 +1,49 @@
+parameters:
+- name: mavenPomFile
+  type: string
+  default: 'pom.xml'
+- name: javaBinariesPath
+  type: string
+  default: 'target/classes'
+- name: sonarProjectKey
+  type: string
+- name: sonarHostUrl
+  type: string
+- name: sonarToken
+  type: string
+
+steps:
+- task: Maven@3
+  inputs:
+    mavenPomFile: ${{ parameters.mavenPomFile }}
+    goals: 'sonar:sonar'
+    options: >
+      -Dsonar.projectKey=${{ parameters.sonarProjectKey }}
+      -Dsonar.projectName=${{ parameters.sonarProjectKey }}
+      -Dsonar.host.url=${{ parameters.sonarHostUrl }}
+      -Dsonar.login=${{ parameters.sonarToken }}
+      -Dsonar.java.binaries=${{ parameters.javaBinariesPath }}
+      -Dsonar.sourceEncoding=UTF-8
+      -Dsonar.scanner.metadata.skip=true
+      -Dsonar.tests=.
+      -Dsonar.test.inclusions=**/*None*
+      -Dsonar.coverage.exclusions=**/*
+      -Dsonar.junit.reportPaths=nonExistingfolder
+      -Dsonar.jacoco.reportPaths=nonExistingfolder
+      -Dsonar.skipDesign=true
+      -Dmaven.test.skip=true
+      -DskipTests
+    publishJUnitResults: false
+  displayName: 'Run SonarQube Analysis'
+  env:
+    SONAR_TOKEN: ${{ parameters.sonarToken }}
+
+
+====================
+
+      parameters:
+        mavenPomFile: 'pom.xml'
+        javaBinariesPath: 'target/classes'
+        sonarProjectKey: $(SONAR_PROJECT_KEY)
+        sonarHostUrl: $(SONARQUBE_URL)
+        sonarToken: $(SONARQUBE_TOKEN)
