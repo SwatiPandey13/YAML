@@ -1,0 +1,75 @@
+sonarqube-analysis.yml
+
+parameters:
+- name: sonarProjectKey
+  type: string
+- name: sonarProjectName
+  type: string
+  default: ${{ parameters.sonarProjectKey }}  # Defaults to projectKey if not specified
+- name: sourcesDir
+  type: string
+  default: 'src'  # Default source directory
+- name: language
+  type: string
+  default: 'java'  # java, js, ts, etc.
+- name: extraProperties
+  type: string
+  default: ''  # Additional SonarQube properties
+
+steps:
+- task: SonarQubePrepare@5
+  displayName: 'Prepare SonarQube Analysis'
+  inputs:
+    SonarQube: 'SonarQube-Service-Connection'  # Name of your Azure DevOps SonarQube service connection
+    scannerMode: 'CLI'
+    configMode: 'manual'
+    cliProjectKey: ${{ parameters.sonarProjectKey }}
+    cliProjectName: ${{ parameters.sonarProjectName }}
+    cliSourcesPath: ${{ parameters.sourcesDir }}
+    extraProperties: |
+      # Standard properties
+      sonar.sourceEncoding=UTF-8
+      sonar.tests=.
+      sonar.test.inclusions=**/*None*
+      sonar.coverage.exclusions=**/*
+      sonar.junit.reportPaths=nonExistingfolder
+      sonar.jacoco.reportPaths=nonExistingfolder
+      sonar.skipDesign=true
+      # Language-specific
+      sonar.language=${{ parameters.language }}
+      # Custom properties (passed via parameters)
+      ${{ parameters.extraProperties }}
+
+- task: SonarQubeAnalyze@5
+  displayName: 'Run SonarQube Analysis'
+
+
+=================================
+
+variables:
+- group: 'SonarQube-Variables'  # Contains SONAR_PROJECT_KEY, etc.
+
+stages:
+- stage: Analysis
+  jobs:
+  - job: SonarQube_Analysis
+    steps:
+    - checkout: self  # Required to scan the code
+      
+    # For Java projects (with Maven)
+    - task: Maven@3
+      inputs:
+        mavenPomFile: 'pom.xml'
+        goals: 'clean package'
+        options: '-DskipTests=true'  # Skip tests if only analysis is needed
+      displayName: 'Build with Maven (for Java)'
+
+    # Reusable SonarQube Analysis
+    - template: templates/sonarqube-analysis.yml
+      parameters:
+        sonarProjectKey: $(SONAR_PROJECT_KEY)
+        sonarProjectName: 'Your Project Name'  # Optional
+        sourcesDir: 'src/main/java'  # Java-specific
+        extraProperties: |
+          sonar.java.binaries=target/classes
+          sonar.java.libraries=target/**/*.jar
