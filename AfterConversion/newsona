@@ -1,49 +1,59 @@
-parameters:
-- name: mavenPomFile
-  type: string
-  default: 'pom.xml'
-- name: javaBinariesPath
-  type: string
-  default: 'target/classes'
-- name: sonarProjectKey
-  type: string
-- name: sonarHostUrl
-  type: string
-- name: sonarToken
-  type: string
+# trigger: none
+pool:
+  name: RHEL8_Servers
 
-steps:
-- task: Maven@3
-  inputs:
-    mavenPomFile: ${{ parameters.mavenPomFile }}
-    goals: 'sonar:sonar'
-    options: >
-      -Dsonar.projectKey=${{ parameters.sonarProjectKey }}
-      -Dsonar.projectName=${{ parameters.sonarProjectKey }}
-      -Dsonar.host.url=${{ parameters.sonarHostUrl }}
-      -Dsonar.login=${{ parameters.sonarToken }}
-      -Dsonar.java.binaries=${{ parameters.javaBinariesPath }}
-      -Dsonar.sourceEncoding=UTF-8
-      -Dsonar.scanner.metadata.skip=true
-      -Dsonar.tests=.
-      -Dsonar.test.inclusions=**/*None*
-      -Dsonar.coverage.exclusions=**/*
-      -Dsonar.junit.reportPaths=nonExistingfolder
-      -Dsonar.jacoco.reportPaths=nonExistingfolder
-      -Dsonar.skipDesign=true
-      -Dmaven.test.skip=true
-      -DskipTests
-    publishJUnitResults: false
-  displayName: 'Run SonarQube Analysis'
-  env:
-    SONAR_TOKEN: ${{ parameters.sonarToken }}
+variables:
+  - group: ArtifactorySettings
+  - name: BuildAgentImage
+    value: 'RHEL8_Servers'
+  - name: JAVA_HOME
+    value: /opt/app/jvm/jdk-17
+  - name: MAVEN_HOME
+    value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
+  - name: M2_HOME
+    value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
+
+resources:
+  repositories:
+    - repository: shared
+      type: git
+      name: Workflowlib_Global_Template/DevOps_Global_Template
+      ref: workflowlib
+      
+stages:
+- stage: Build
+  jobs:
+  - template: build.yml@shared
+    parameters:
+      buildTool: 'maven'
+      mavenGoals: 'clean package'
+      buildArgs: '-DskipTests=true'
+      image: 'podman'
+      contents: '**/*.war'
 
 
-====================
+- stage: Analyze
+  dependsOn: Build
+  jobs:
+  - job: InitilizeAnalysis
+    steps:
+    - script: echo "Preparaing SonarQube analysis environment"
+      displayName: 'Analysis Initialization'
+  - template: sonar-analysis-template.yml@shared
+    parameters:
+      buildTool: 'maven'
+      mavenPomFile: 'pom.xml'
+      javaBinariesPath: 'target/classes'
+      sonarProjectKey: $(SONAR_PROJECT_KEY)
+      sonarHostUrl: $(SONARQUBE_URL)
+      sonarToken: $(SONARQUBE_TOKEN)
 
-      parameters:
-        mavenPomFile: 'pom.xml'
-        javaBinariesPath: 'target/classes'
-        sonarProjectKey: $(SONAR_PROJECT_KEY)
-        sonarHostUrl: $(SONARQUBE_URL)
-        sonarToken: $(SONARQUBE_TOKEN)
+- stage: Initialize_pipeline_with_security_scan
+  jobs:
+  - template: snyk-code-scan-template.yml@shared
+    parameters:
+      snykDebugEnabled: false
+      branchName: $(Build.SourceBranchName)
+      repoName: $(Build.Repository.Name)
+      buildTool: 'python'
+      platform: 'linux'
