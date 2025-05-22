@@ -1,17 +1,116 @@
-# trigger: none
+this is reusable template
+
+parameters:
+- name: BuildAgentImage
+  type: string
+  default: 'RHEL8_Servers'
+
+- name: buildTool
+  type: string
+  default: 'maven'
+
+- name: mavenGoals
+  type: string
+  default: 'clean package'
+
+- name: buildArgs
+  type: string
+  default: '-DskipTests=true'
+
+- name: image
+  type: string
+  default: 'podman'
+
+- name: mavenPomFile
+  type: string
+  default: 'pom.xml'
+
+- name: snykDebugEnabled
+  type: boolean
+  default: false
+
+- name: platform
+  type: string
+  default: 'linux'
+
+- name: contents
+  type: string
+  default: '**/*.war'
+
+
+jobs:
+- job: Build
+  variables:
+    - group: ArtifactorySettings
+    - name: BuildAgentImage
+      value: 'RHEL8_Servers'
+    - name: JAVA_HOME
+      value: /opt/app/jvm/jdk-17
+    - name: MAVEN_HOME
+      value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
+    - name: M2_HOME
+      value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
+- template: build.yml
+  parameters:
+    buildTool: 'maven'
+    mavenGoals: 'clean package'
+    buildArgs: '-DskipTests=true'
+    image: 'podman'
+    contents: '**/*.war'
+
+
+
+- job: InitilizeAnalysis
+  variables:
+    - group: ArtifactorySettings
+    - name: BuildAgentImage
+      value: 'RHEL8_Servers'
+    - name: JAVA_HOME
+      value: /opt/app/jvm/jdk-17
+    - name: MAVEN_HOME
+      value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
+    - name: M2_HOME
+      value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
+  dependsOn: Build
+  steps:
+  - script: echo "Preparaing SonarQube analysis environment"
+    displayName: 'Analysis Initialization'
+- template: sonar-analysis-template.yml
+  parameters:
+    buildTool: 'maven'
+    mavenPomFile: 'pom.xml'
+    sonarProjectKey: $(SONAR_PROJECT_KEY)
+    sonarHostUrl: $(SONARQUBE_URL)
+    sonarToken: $(SONARQUBE_TOKEN)
+
+
+- job: SnyScan
+  variables:
+    - group: ArtifactorySettings
+    - name: BuildAgentImage
+      value: 'RHEL8_Servers'
+    - name: JAVA_HOME
+      value: /opt/app/jvm/jdk-17
+    - name: MAVEN_HOME
+      value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
+    - name: M2_HOME
+      value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
+- template: snyk-code-scan-template.yml
+  parameters:
+    snykDebugEnabled: false
+    branchName: $(Build.SourceBranchName)
+    repoName: $(Build.Repository.Name)
+    buildTool: 'python'
+    platform: 'linux'
+
+
+=======================================
+
+This azure-pipelines.yml
+
+trigger: none
 pool:
   name: RHEL8_Servers
-
-variables:
-  - group: ArtifactorySettings
-  - name: BuildAgentImage
-    value: 'RHEL8_Servers'
-  - name: JAVA_HOME
-    value: /opt/app/jvm/jdk-17
-  - name: MAVEN_HOME
-    value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
-  - name: M2_HOME
-    value: /opt/citools/jenkins_unit/37d0742a/tools/hudson.tasks.Maven_MavenInstallation/MAVEN-3.8.8
 
 resources:
   repositories:
@@ -21,39 +120,12 @@ resources:
       ref: workflowlib
       
 stages:
-- stage: Build
+- stage: BuildApplication
   jobs:
-  - template: build.yml@shared
+  - template: main.yml@shared
     parameters:
       buildTool: 'maven'
       mavenGoals: 'clean package'
       buildArgs: '-DskipTests=true'
       image: 'podman'
       contents: '**/*.war'
-
-
-- stage: Analyze
-  dependsOn: Build
-  jobs:
-  - job: InitilizeAnalysis
-    steps:
-    - script: echo "Preparaing SonarQube analysis environment"
-      displayName: 'Analysis Initialization'
-  - template: sonar-analysis-template.yml@shared
-    parameters:
-      buildTool: 'maven'
-      mavenPomFile: 'pom.xml'
-      javaBinariesPath: 'target/classes'
-      sonarProjectKey: $(SONAR_PROJECT_KEY)
-      sonarHostUrl: $(SONARQUBE_URL)
-      sonarToken: $(SONARQUBE_TOKEN)
-
-- stage: Initialize_pipeline_with_security_scan
-  jobs:
-  - template: snyk-code-scan-template.yml@shared
-    parameters:
-      snykDebugEnabled: false
-      branchName: $(Build.SourceBranchName)
-      repoName: $(Build.Repository.Name)
-      buildTool: 'python'
-      platform: 'linux'
